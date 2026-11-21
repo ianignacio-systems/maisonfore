@@ -1,0 +1,10 @@
+{
+  "name": "@maison/core",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Maison core: the parts every Maison product shares (database, migrations, Maison account sign-in, members and roles, activity log, addresses, screen kit). Taken from MaisonPOS v1.",
+  "exports": { ".": "./src/index.ts", "./pglite": "./src/pglite.ts", "./ui/kit": "./ui/kit.tsx", "./ui/styles.css": "./ui/styles.css" },
+  "dependencies": { "jose": "^6.2.17", "pg": "^8.23.1" },
+  "devDependencies": { "@electric-sql/pglite": "^0.5.16", "@types/pg": "^8.23.1" }
+}

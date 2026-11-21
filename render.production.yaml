@@ -1,0 +1,25 @@
+# The production setup (MaisonFore on Supabase, portal on Cloudflare): SETUP.md, part B. In Render, New → Blueprint,
+# then set "Blueprint path" to render.production.yaml.
+services:
+  - type: web
+    name: maisonfore-server
+    runtime: node
+    region: singapore
+    plan: starter
+    rootDir: .
+    buildCommand: npm ci
+    startCommand: npm start -w maisonfore-server
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TZ
+        value: Asia/Manila
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://maisonfore.com,https://www.maisonfore.com
+      - key: PLATFORM_ADMIN_EMAILS
+        sync: false

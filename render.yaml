@@ -1,0 +1,38 @@
+# The MaisonFore test site on Render: one web service that runs the server and serves the portal from the same
+# address, and a PostgreSQL database, both in Singapore. Sign-in is the Maison account (the MaisonPOS Supabase
+# project). Steps: SETUP.md, part A.
+services:
+  - type: web
+    name: maisonfore
+    runtime: node
+    region: singapore
+    plan: free                      # sleeps after 15 minutes idle; change to 0.5c-512mb (Starter) to keep it awake
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start -w maisonfore-server
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: TZ
+        value: Asia/Manila
+      - key: SERVE_PORTAL
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maisonfore-db
+          property: connectionString
+      - key: VITE_SUPABASE_URL              # the MaisonPOS project's Project URL; the server uses it too
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY  # the MaisonPOS project's publishable key
+        sync: false
+      - key: PLATFORM_ADMIN_EMAILS          # who can open Maison admin, comma-separated
+        sync: false
+
+databases:
+  - name: maisonfore-db
+    plan: free                      # expires after 30 days; upgrade to Basic to keep it
+    region: singapore
+    databaseName: maisonfore
+    user: maisonfore
