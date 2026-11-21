@@ -165,6 +165,7 @@ button, input, select, textarea { font-family: inherit; }
 .fore-flight { display: flex; align-items: center; gap: 12px; padding: 8px 12px; min-height: 54px; }
 .fore-flight.s-held { background: repeating-linear-gradient(135deg, var(--sand) 0 10px, #f3ebda 10px 20px); }
 .fore-flight.s-closed { background: var(--clay-soft); }
+.fore-flight.s-hidden { background: repeating-linear-gradient(135deg, transparent 0 8px, #f1f4f2 8px 16px); }
 .fore-who { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
 .fore-golfer { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; padding: 5px 6px 5px 11px; border-radius: 10px; background: var(--accent-soft); font-size: 14px; max-width: 100%; }
 .fore-golfer:hover { background: #cfe0d5; }

@@ -132,10 +132,10 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
           <p><b>{players}</b> of {capacity} spots booked</p>
         </div>
         <p><b>{bookings.length}</b> {bookings.length === 1 ? 'booking' : 'bookings'}</p>
-        <p><b>{openTimes}</b> times open</p>
+        <p><b>{openTimes}</b> slots open</p>
         <p><b>{checkedIn}</b> checked in</p>
         <div className="fore-sum-actions">
-          <button className={`fore-chip-toggle${onlyOpen ? ' on' : ''}`} aria-pressed={onlyOpen} onClick={toggleOpen}><i aria-hidden />Only available times</button>
+          <button className={`fore-chip-toggle${onlyOpen ? ' on' : ''}`} aria-pressed={onlyOpen} onClick={toggleOpen}><i aria-hidden />Only available slots</button>
           {readOnly ? <span className="muted small">View only</span> : (
             <>
               {canSpecial ? <Btn onClick={() => setSpecialing(true)}>Special booking</Btn> : null}
@@ -174,7 +174,7 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
         </section>
       ) : null}
       {sheet?.loose.length ? <p className="fore-alert warn">{sheet.loose.length === 1 ? 'One booking is' : `${sheet.loose.length} bookings are`} on a tee time that’s no longer on the sheet: {sheet.loose.map((b) => `${b.contactName} at ${formatTime(b.time)}`).join(', ')}. Move {sheet.loose.length === 1 ? 'it' : 'them'} to another time.</p> : null}
-      {!sheet ? <p className="fore-empty">Loading the tee sheet…</p> : !L || !allTimes.length ? <p className="fore-empty">No tee times on this day. Check the tee times in Settings.</p> : !times.length ? <p className="fore-empty">No available times left on this day. <button className="fore-link" onClick={toggleOpen}>Show all times</button></p> : (
+      {!sheet ? <p className="fore-empty">Loading the tee sheet…</p> : !L || !allTimes.length ? <p className="fore-empty">No tee times on this day. Check the tee times in Settings.</p> : !times.length ? <p className="fore-empty">No available slots left on this day. <button className="fore-link" onClick={toggleOpen}>Show all slots</button></p> : (
         <div className={`fore-sheet tees-${tees.length}`}>
           <div className="fore-sheet-head">
             <span>Tee time</span>
@@ -187,7 +187,9 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
             return (
               <div key={time} className={`fore-row${past ? ' past' : ''}${nowHere ? ' now' : ''}`}>
                 <div className="fore-time"><span>{formatTime(time).replace(/ (AM|PM)$/, '')}</span><small>{time < 720 ? 'am' : 'pm'}</small></div>
-                {cells.map((c) => <Flight key={c.startTee} c={c} onAdd={readOnly ? undefined : setAdding} onOpen={setOpen} />)}
+                {cells.map((c) => (onlyOpen && !bookableSlot(c)
+                  ? <div key={c.startTee} className="fore-flight s-hidden" aria-hidden />
+                  : <Flight key={c.startTee} c={c} onAdd={readOnly ? undefined : setAdding} onOpen={setOpen} />))}
               </div>
             );
           })}
