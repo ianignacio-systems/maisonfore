@@ -148,6 +148,18 @@ describe('checking a booking', () => {
     const s = buildSheet(solo, { layoutId: 'L18', day: '2026-11-23', bookings: [booking({ time: 380, players: 2 })], blocks: [], now: at('2026-11-22', '08:00'), audience: 'staff' });
     expect(s.find((x) => x.time === 380)).toMatchObject({ state: 'full', free: 0, used: 2 });
   });
+  it('turns an unpaid booking into a pencil booking when its payment time runs out', () => {
+    const now = at('2026-11-22', '08:00');
+    const due = booking({ time: 380, players: 4, payDueBy: now + 60_000 });
+    const lapsed = booking({ time: 390, players: 4, payDueBy: now - 60_000 });
+    const s = buildSheet(course(), { layoutId: 'L18', day: '2026-11-23', bookings: [due, lapsed], blocks: [], now, audience: 'staff' });
+    expect(s.find((x) => x.time === 380)).toMatchObject({ state: 'full', free: 0 });
+    const t = s.find((x) => x.time === 390)!;
+    expect(t).toMatchObject({ state: 'open', free: 4, used: 0 });
+    expect(t.bookings.map((b) => b.id)).toEqual([lapsed.id]);
+    const pub = buildSheet(course(), { layoutId: 'L18', day: '2026-11-23', bookings: [lapsed], blocks: [], now, audience: 'public' });
+    expect(pub.find((x) => x.time === 390)!.bookings).toEqual([]);
+  });
   it('leaves special bookings out of every slot', () => {
     const s = buildSheet(course(), { layoutId: 'L18', day: '2026-11-23', bookings: [booking({ time: 380, players: 4, special: true })], blocks: [], now: at('2026-11-22', '08:00'), audience: 'staff' });
     expect(s.find((x) => x.time === 380)).toMatchObject({ state: 'open', used: 0, free: 4 });

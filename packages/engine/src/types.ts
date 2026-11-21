@@ -94,6 +94,13 @@ export interface BookingRules {
   minPlayersWeekend: number;
   /** Different groups can share a tee time until it is full. false = one group per tee time. */
   shareTeeTimes: boolean;
+  /** Whether every player's name must be given when booking, or only the name for the booking. */
+  playerNames: 'optional' | 'required';
+  /**
+   * Hours an unpaid phone, Viber or walk-in booking keeps its tee time after it is made. After that it
+   * becomes a pencil booking: it stays on the sheet but no longer takes its spots. null = kept until paid.
+   */
+  paymentGraceHours: number | null;
 }
 
 export type BlockKind = 'walkin' | 'regulars' | 'event' | 'maintenance' | 'weather' | 'members';
@@ -137,6 +144,8 @@ export interface Booking {
    * it doesn't take any slot's spots and may have no set time (time = -1).
    */
   special?: boolean;
+  /** Unpaid staff bookings: when the payment grace period ends (epoch ms). null = paid, or no grace period. */
+  payDueBy?: number | null;
 }
 
 export type FeeKind = 'cart' | 'caddie' | 'gallery' | 'other';
@@ -242,4 +251,6 @@ export const DEFAULT_RULES: BookingRules = {
   minPlayersWeekday: 1,
   minPlayersWeekend: 1,
   shareTeeTimes: true,
+  playerNames: 'optional',
+  paymentGraceHours: null,
 };

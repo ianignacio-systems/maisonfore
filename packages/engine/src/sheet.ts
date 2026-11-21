@@ -1,5 +1,5 @@
 import { dayType, priceFor } from './pricing';
-import { takesSlot } from './status';
+import { isPencil, takesSlot } from './status';
 import { addDays, daysBetween, formatDay, formatTime, localParts, zonedEpoch } from './time';
 import type { Audience, Block, Booking, CourseSetup, Day, Layout, Minutes, SheetSettings, Slot } from './types';
 import { DEFAULT_OPTIONS } from './types';
@@ -94,6 +94,8 @@ export function buildSheet(setup: CourseSetup, input: SheetInput): Slot[] {
     ? daysBetween(addDays(win.today, setup.rules.memberDaysAhead), day) > 0 : beyondPublic;
   // Special bookings sit outside the sheet: they never take a slot's spots.
   const active = input.bookings.filter((b) => !b.special && b.layoutId === layout.id && b.day === day && takesSlot(b, now));
+  // Pencil bookings stay visible to staff on their time, without taking its spots.
+  const pencils = audience === 'staff' ? input.bookings.filter((b) => !b.special && b.layoutId === layout.id && b.day === day && isPencil(b, now)) : [];
   const out: Slot[] = [];
   for (const time of teeTimes(s)) {
     const past = zonedEpoch(day, time, setup.timeZone) <= now;
@@ -115,7 +117,7 @@ export function buildSheet(setup: CourseSetup, input: SheetInput): Slot[] {
       else state = used ? 'partial' : 'open';
       out.push({
         layoutId: layout.id, startTee, day, time, capacity, used, free: taken ? 0 : Math.max(0, capacity - used), state, block,
-        bookings: audience === 'staff' ? on : [],
+        bookings: audience === 'staff' ? [...on, ...pencils.filter((b) => b.startTee === startTee && b.time === time)] : [],
       });
     }
   }

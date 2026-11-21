@@ -347,3 +347,66 @@ describe('special bookings and player rules', () => {
     await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, shareTeeTimes: true });
   });
 });
+
+describe('player names', () => {
+  const SUN = '2026-11-29';
+  it('keeps every player’s name, the first defaulting to the name for the booking', async () => {
+    const r = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: SUN, time: 360, players: 3, contactName: 'Ana Cruz', playerNames: ['', 'Ben Cruz', ''] });
+    expect(r.status).toBe(200);
+    const d = await t.call(OWNER, 'GET', `/courses/${id}/bookings/${r.body.id}`);
+    expect(d.body.players.map((p: { name: string }) => p.name)).toEqual(['Ana Cruz', 'Ben Cruz', '']);
+    const e = await t.call(OWNER, 'PATCH', `/courses/${id}/bookings/${r.body.id}`, { contactName: 'Ana Cruz', playerNames: ['Ana Cruz', 'Ben Cruz', 'Carlo Cruz'] });
+    expect(e.status).toBe(200);
+    const d2 = await t.call(OWNER, 'GET', `/courses/${id}/bookings/${r.body.id}`);
+    expect(d2.body.players.map((p: { name: string }) => p.name)).toEqual(['Ana Cruz', 'Ben Cruz', 'Carlo Cruz']);
+  });
+  it('requires every name where the club says so', async () => {
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, playerNames: 'required' });
+    const r = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: SUN, time: 370, players: 2, contactName: 'Dan' });
+    expect(r.body.error).toMatch(/name of every player/);
+    const ok = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: SUN, time: 370, players: 2, contactName: 'Dan', playerNames: ['Dan', 'Eve'] });
+    expect(ok.status).toBe(200);
+    const sp = await t.call(OWNER, 'POST', `/courses/${id}/specials`, { day: SUN, players: 2, contactName: 'VIP' });
+    expect(sp.body.error).toMatch(/name of every player/);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, playerNames: 'optional' });
+  });
+});
+
+describe('time to pay and pencil bookings', () => {
+  const DAY = '2026-12-01';
+  it('turns an unpaid phone booking into a pencil booking when the time to pay runs out', async () => {
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: 2 });
+    const start = t.clock.now;
+    const b = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 360, players: 4, contactName: 'Late payer', channel: 'phone' });
+    expect(b.body.payDueBy).toBe(start + 2 * 3_600_000);
+    const before = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 360, players: 1, contactName: 'Hopeful' });
+    expect(before.body.error).toMatch(/full/);
+    t.clock.now = start + 2 * 3_600_000 + 1;
+    const sheet = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
+    const slot = sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 360 && s.startTee === '1');
+    expect(slot).toMatchObject({ state: 'open', free: 4 });
+    expect(slot.bookings.map((x: { contactName: string }) => x.contactName)).toEqual(['Late payer']);
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${b.body.id}/check-in`)).body.error).toMatch(/pencil booking/);
+    const other = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 360, players: 2, contactName: 'Took the time' });
+    expect(other.status).toBe(200);
+    const pay = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${b.body.id}/payment`, { amount: 100000, method: 'cash' });
+    expect(pay.body.error).toMatch(/Someone else has booked/);
+    t.clock.now = start;
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: null });
+  });
+  it('puts a pencil booking back on its time when it is paid and the time still has room', async () => {
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: 1 });
+    const start = t.clock.now;
+    const b = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 380, players: 2, contactName: 'Pays late', channel: 'viber' });
+    t.clock.now = start + 3_600_001;
+    const pay = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${b.body.id}/payment`, { amount: 100000, method: 'cash' });
+    expect(pay.body).toMatchObject({ payStatus: 'paid_course', payDueBy: null });
+    const sheet = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
+    expect(sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 380 && s.startTee === '1')).toMatchObject({ used: 2 });
+    t.clock.now = start;
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: null });
+  });
+});

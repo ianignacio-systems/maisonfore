@@ -36,6 +36,7 @@ export interface Course {
 export interface CourseData { course: Course; role: Role; setup: CourseSetup; readiness: { step: string; done: boolean }[]; holidayNames?: Record<string, string> }
 export interface StaffBooking extends Booking {
   mobile: string; email: string; notes: string; amount: number; payStatus: string; paidAmount: number; paidMethod: string;
+  special?: boolean; payDueBy?: number | null;
   holes: 9 | 18; carts: number; caddies: number; gallery: number; extras: string[]; quote: QuoteLine[]; payInApp: number;
 }
 export interface DaySummary { day: string; used: number; capacity: number; bookings: number; closed: boolean }

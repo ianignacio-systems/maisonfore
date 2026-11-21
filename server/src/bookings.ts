@@ -1,14 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { audit, newId, NotFound, UserError, type Caller, type Db } from '@maison/core';
 import {
-  addDays, buildSheet, canChange, checkBooking, daysBetween, formatDay, formatTime, localParts, newRef, priceFor, quote, STATUS_WORDS, takesSlot, teeMoment,
+  addDays, buildSheet, canChange, checkBooking, isPencil, daysBetween, formatDay, formatTime, localParts, newRef, priceFor, quote, STATUS_WORDS, takesSlot, teeMoment,
   type Block, type BlockKind, type Booking, type BookingStatus, type Channel, type CourseSetup, type Quote, type QuoteLine, type Slot,
 } from '@maison/engine';
 import { day, int, minutes, mobile, oneOf, text } from './check';
 import { CAN, loadSetup, roleAt } from './courses';
 
 export const BOOKING_COLS = `id, ref, layout_id, start_tee, day, time_min, players, status, channel, hold_expires_at, golfer_account, contact_name, mobile, email, notes,
-  amount, pay_status, paid_amount, paid_method, paid_ref, cancel_reason, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, special`;
+  amount, pay_status, paid_amount, paid_method, paid_ref, cancel_reason, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, special, pay_due_by`;
 
 export interface BookingRow extends Booking {
   mobile: string; email: string; notes: string; amount: number; payStatus: 'unpaid' | 'paid_course' | 'paid_online';
@@ -18,7 +18,7 @@ export interface BookingRow extends Booking {
 
 export function bookingOf(r: Record<string, unknown>): BookingRow {
   return {
-    id: r.id as string, ref: r.ref as string, layoutId: r.layout_id as string, startTee: r.start_tee as string, day: r.day as string, time: (r.time_min as number | null) ?? -1, special: r.special === true,
+    id: r.id as string, ref: r.ref as string, layoutId: r.layout_id as string, startTee: r.start_tee as string, day: r.day as string, time: (r.time_min as number | null) ?? -1, special: r.special === true, payDueBy: (r.pay_due_by as number | null) ?? null,
     players: r.players as number, status: r.status as BookingStatus, channel: r.channel as Channel, holdExpiresAt: (r.hold_expires_at as number) ?? null,
     golferId: (r.golfer_account as string) ?? null, contactName: r.contact_name as string, mobile: r.mobile as string, email: r.email as string,
     notes: r.notes as string, amount: r.amount as number, payStatus: r.pay_status as BookingRow['payStatus'], paidAmount: r.paid_amount as number,
@@ -108,6 +108,23 @@ async function checkSlot(q: Db, setup: CourseSetup, courseId: string, w: Wanted,
   if (problem) throw new UserError(problem);
 }
 
+/**
+ * Each player's name, the first defaulting to the name for the booking. Where the club requires every
+ * player's name, refuses a booking with any missing.
+ */
+function playerNamesOf(setup: CourseSetup, input: Record<string, unknown>, players: number, contactName: string): string[] {
+  const given: string[] = Array.isArray(input.playerNames) ? input.playerNames.map((n) => text(n, 'a player name', { max: 80 })) : [];
+  const names = Array.from({ length: players }, (_, i) => given[i] || (i === 0 ? contactName : ''));
+  if (setup.rules.playerNames === 'required' && names.some((n) => !n)) throw new UserError('Enter the name of every player. The club asks for all names.');
+  return names;
+}
+
+/** When an unpaid phone, Viber or walk-in booking stops holding its tee time; null = no limit. */
+function graceEnd(setup: CourseSetup, channel: string, now: number): number | null {
+  const h = setup.rules.paymentGraceHours;
+  return h !== null && (channel === 'phone' || channel === 'viber' || channel === 'walkin') ? now + h * 3_600_000 : null;
+}
+
 /** What the booking includes besides the slot: holes, each player's type, carts, caddies, gallery, optional fees. */
 interface Pick { holes: 9 | 18; types: string[]; carts: number; caddies: number; gallery: number; extras: string[] }
 
@@ -154,8 +171,8 @@ export async function createBooking(db: Db, c: Caller, courseId: string, input: 
   const hold = input.hold === true;
   const contactName = text(input.contactName, 'the name for the booking', { required: true, max: 80 });
   const contact = { mobile: mobile(input.mobile), email: text(input.email, 'the email', { max: 120 }), notes: text(input.notes, 'the note', { max: 500 }) };
-  const names: string[] = Array.isArray(input.playerNames) ? input.playerNames.map((n) => text(n, 'a player name', { max: 80 })) : [];
   const setup = await loadSetup(db, courseId);
+  const names = playerNamesOf(setup, input, w.players, contactName);
   const pick = pickOf(setup, input, w.players);
   return db.tx(async (q) => {
     await lockSlot(q, courseId, w.layoutId, w.startTee, w.day, w.time);
@@ -164,16 +181,17 @@ export async function createBooking(db: Db, c: Caller, courseId: string, input: 
     const each = greenFees(setup, w, price, pick.types);
     const id = newId();
     const ref = await insertRef(q, courseId);
+    const payDueBy = hold ? null : graceEnd(setup, channel, now);
     await q.query(
       `insert into bookings (business_id, id, ref, layout_id, start_tee, day, time_min, players, status, channel, hold_expires_at, contact_name, mobile, email, notes,
-        amount, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app)
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $19, $20, $21, $22, $23, $24, $25)`,
+        amount, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, pay_due_by)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
       [courseId, id, ref, w.layoutId, w.startTee, w.day, w.time, w.players, hold ? 'held' : 'confirmed', channel, hold ? now + setup.rules.holdMinutes * 60_000 : null,
         contactName, contact.mobile, contact.email, contact.notes, price.total, c.email, now,
-        price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines), price.payInApp]);
+        price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines), price.payInApp, payDueBy]);
     for (let n = 1; n <= w.players; n++) {
       await q.query('insert into booking_players (business_id, booking_id, n, name, player_type_id, rate) values ($1, $2, $3, $4, $5, $6)',
-        [courseId, id, n, names[n - 1] ?? (n === 1 ? contactName : ''), pick.types[n - 1], each[n - 1]]);
+        [courseId, id, n, names[n - 1], pick.types[n - 1], each[n - 1]]);
     }
     await audit(q, courseId, c.email, hold ? 'booking.held' : 'booking.created', `${ref} · ${contactName}`, `${formatDay(w.day)} ${formatTime(w.time)}, ${w.players} players, ${price.holes} holes, ${channel}`, null, now);
     return getBookingIn(q, courseId, id);
@@ -220,9 +238,14 @@ export async function changeStatus(db: Db, c: Caller, courseId: string, id: stri
     }
     if (!canChange(b.status, to)) throw new UserError(`A booking that is ${STATUS_WORDS[b.status].toLowerCase()} can’t be changed to ${STATUS_WORDS[to].toLowerCase()}.`);
     if (to === 'no_show' && teeMoment(setup, b) > now) throw new UserError('You can mark a no-show once the tee time has passed.');
+    if (to === 'checked_in' && isPencil(b, now)) throw new UserError('This is now a pencil booking: its time to pay ran out. Record the payment first.');
     if (to === 'cancelled' && !reason) throw new UserError('Add a reason for cancelling.');
     await q.query('update bookings set status = $3, hold_expires_at = null, cancel_reason = $4, updated_at = $5 where business_id = $1 and id = $2',
       [courseId, id, to, to === 'cancelled' ? reason : b.cancelReason, now]);
+    // A hold confirmed by staff starts its time to pay now.
+    if (b.status === 'held' && to === 'confirmed' && b.payStatus === 'unpaid') {
+      await q.query('update bookings set pay_due_by = $3 where business_id = $1 and id = $2', [courseId, id, graceEnd(setup, b.channel, now)]);
+    }
     await audit(q, courseId, c.email, `booking.${to}`, said(b), `${STATUS_WORDS[b.status]} → ${STATUS_WORDS[to]}${reason ? `: ${reason}` : ''}`, null, now);
     if (b.channel === 'app' && (to === 'cancelled' || to === 'no_show')) {
       await q.query('insert into notices (business_id, booking_id, kind, detail, created_at) values ($1, $2, $3, $4, $5)', [courseId, id, to, reason, now]);
@@ -269,9 +292,14 @@ export async function editBooking(db: Db, c: Caller, courseId: string, id: strin
   await roleAt(db, c, courseId, CAN.daily);
   const contactName = text(input.contactName, 'the name for the booking', { required: true, max: 80 });
   const m = mobile(input.mobile), email = text(input.email, 'the email', { max: 120 }), notes = text(input.notes, 'the note', { max: 500 });
+  const setup = Array.isArray(input.playerNames) ? await loadSetup(db, courseId) : null;
   return db.tx(async (q) => {
     const b = await lockBooking(q, courseId, id);
     await q.query('update bookings set contact_name = $3, mobile = $4, email = $5, notes = $6, updated_at = $7 where business_id = $1 and id = $2', [courseId, id, contactName, m, email, notes, now]);
+    if (setup) {
+      const names = playerNamesOf(setup, input, b.players, contactName);
+      for (const [i, name] of names.entries()) await q.query('update booking_players set name = $4 where business_id = $1 and booking_id = $2 and n = $3', [courseId, id, i + 1, name]);
+    }
     await audit(q, courseId, c.email, 'booking.edited', said({ ...b, contactName }), 'Contact details or notes', null, now);
     return getBookingIn(q, courseId, id);
   });
@@ -288,7 +316,15 @@ export async function recordPayment(db: Db, c: Caller, courseId: string, id: str
     const b = await lockBooking(q, courseId, id);
     if (b.payStatus === 'paid_online') throw new UserError('This booking was already paid in the app.');
     if (b.status === 'cancelled' || b.status === 'expired') throw new UserError('This booking is not active.');
-    await q.query("update bookings set pay_status = 'paid_course', paid_amount = $3, paid_method = $4, paid_ref = $5, updated_at = $6 where business_id = $1 and id = $2",
+    if (isPencil(b, now) && !b.special) {
+      // Paying a pencil booking puts it back on its time, if the time still has room for it.
+      const setup = await loadSetup(q, courseId);
+      await lockSlot(q, courseId, b.layoutId, b.startTee, b.day, b.time);
+      const sheet = buildSheet(setup, { layoutId: b.layoutId, day: b.day, bookings: await dayBookings(q, courseId, b.day, b.layoutId), blocks: await dayBlocks(q, courseId, b.day), now, audience: 'staff' });
+      const slot = sheet.find((s) => s.startTee === b.startTee && s.time === b.time);
+      if (!slot || slot.free < b.players) throw new UserError(`Someone else has booked ${formatTime(b.time)} since this became a pencil booking. Move it to another time first, then record the payment.`);
+    }
+    await q.query("update bookings set pay_status = 'paid_course', paid_amount = $3, paid_method = $4, paid_ref = $5, updated_at = $6, pay_due_by = null where business_id = $1 and id = $2",
       [courseId, id, amount, method, ref, now]);
     await audit(q, courseId, c.email, 'booking.paid', said(b), `₱${(amount / 100).toFixed(2)} ${method}${ref ? ` ${ref}` : ''}`, null, now);
     return getBookingIn(q, courseId, id);
@@ -396,6 +432,7 @@ export async function createSpecial(db: Db, c: Caller, courseId: string, input: 
   const channel = oneOf(input.channel ?? 'staff', 'how the booking came in', ['phone', 'viber', 'walkin', 'staff'] as const);
   const contactName = text(input.contactName, 'the name for the booking', { required: true, max: 80 });
   const contact = { mobile: mobile(input.mobile), email: text(input.email, 'the email', { max: 120 }), notes: text(input.notes, 'the note', { max: 500 }) };
+  const names = playerNamesOf(setup, input, players, contactName);
   const pick = pickOf(setup, input, players);
   const w: Wanted = { layoutId, startTee, day: d, time: time ?? 0, players };
   const price = priceOf(setup, w, pick);
@@ -411,7 +448,7 @@ export async function createSpecial(db: Db, c: Caller, courseId: string, input: 
         price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines), price.payInApp]);
     for (let n = 1; n <= players; n++) {
       await q.query('insert into booking_players (business_id, booking_id, n, name, player_type_id, rate) values ($1, $2, $3, $4, $5, $6)',
-        [courseId, id, n, n === 1 ? contactName : '', pick.types[n - 1], each[n - 1]]);
+        [courseId, id, n, names[n - 1], pick.types[n - 1], each[n - 1]]);
     }
     await audit(q, courseId, c.email, 'booking.special', `${ref} · ${contactName}`,
       `${formatDay(d)}${time === null ? ', no set time' : ` ${formatTime(time)}`}, ${players} players`, null, now);

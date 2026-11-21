@@ -1,9 +1,18 @@
 import { zonedEpoch } from './time';
 import type { Booking, BookingStatus, CourseSetup } from './types';
 
-/** Bookings that take up their slot: an unexpired hold, or anything confirmed or after. */
-export function takesSlot(b: Pick<Booking, 'status' | 'holdExpiresAt'>, now: number): boolean {
+/**
+ * A pencil booking: confirmed but unpaid past the club's payment grace period. It stays on the sheet for
+ * staff to follow up, but no longer takes its spots, so others can book the time.
+ */
+export function isPencil(b: Pick<Booking, 'status' | 'payDueBy'>, now: number): boolean {
+  return b.status === 'confirmed' && b.payDueBy !== undefined && b.payDueBy !== null && b.payDueBy <= now;
+}
+
+/** Bookings that take up their slot: an unexpired hold, or anything confirmed or after (but not a pencil booking). */
+export function takesSlot(b: Pick<Booking, 'status' | 'holdExpiresAt'> & { payDueBy?: number | null }, now: number): boolean {
   if (b.status === 'held') return b.holdExpiresAt !== null && b.holdExpiresAt > now;
+  if (isPencil({ status: b.status, payDueBy: b.payDueBy }, now)) return false;
   return b.status === 'confirmed' || b.status === 'checked_in' || b.status === 'played' || b.status === 'no_show';
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Btn, Field, Seg, Select, Sheet, Stepper } from '@maison/core/ui/kit';
-import { addDays, formatDay, formatTime, holesOffered, minPlayers, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
+import { addDays, formatDay, formatTime, holesOffered, isPencil, minPlayers, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
 import { api, type SheetData, type StaffBooking, type StaffSlot } from '../api';
 
 const toMin = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
@@ -12,7 +12,7 @@ const CHANNEL: Record<string, string> = { phone: 'Phone', viber: 'Viber', walkin
  * time or none, never refused for a full or held time, charged like any booking by each player's type.
  */
 export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: {
-  courseId: string; cell?: StaffSlot; special?: { day: string }; setup: CourseSetup; onClose: () => void; onDone: () => void;
+  courseId: string; cell?: StaffSlot; special?: { day: string }; setup: CourseSetup; onClose: () => void; onDone: (made?: StaffBooking) => void;
 }) {
   const types = setup.playerTypes.filter((t) => t.active && !t.member);
   const first = (types.find((t) => t.public) ?? types[0])?.id ?? '';
@@ -24,6 +24,8 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
   const room = cell ? cell.free : 5;
   const offered = holesOffered(setup, layoutId);
   const [f, setF] = useState({ contactName: '', mobile: '', channel: 'phone', notes: '' });
+  const [names, setNames] = useState<string[]>([]);
+  const namesRequired = setup.rules.playerNames === 'required';
   const [counts, setCounts] = useState<Record<string, number>>({ [first]: Math.min(room, 4) });
   const [holes, setHoles] = useState<9 | 18>(offered[0]);
   const [carts, setCarts] = useState(0);
@@ -39,6 +41,7 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
   const cart = fee('cart'), caddie = fee('caddie');
   const q = quote(setup, { layoutId, day, time: time ?? 0, holes, players, carts, caddies, gallery, extras });
   const least = minPlayers(setup, day);
+  const withBooking = q.lines.filter((l) => l.payAt === 'booking').reduce((s, l) => s + l.amount, 0);
   const optional = setup.fees.filter((x) => x.active && x.kind === 'other' && !x.required);
   const setCount = (id: string, v: number) => {
     const others = n - (counts[id] ?? 0);
@@ -50,15 +53,17 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
   const go = async () => {
     setBusy(true); setMsg(null);
     try {
-      const body = { ...f, players: n, playerTypes: players, holes: q.holes, carts: q.carts, caddies: q.caddies, gallery: q.gallery, extras, layoutId, day };
-      if (cell) await api(`/courses/${courseId}/bookings`, { method: 'POST', body: { ...body, startTee: cell.startTee, time: cell.time } });
-      else await api(`/courses/${courseId}/specials`, { method: 'POST', body: { ...body, time } });
-      onDone();
+      const playerNames = players.map((_, i) => (names[i] ?? '').trim() || (i === 0 ? f.contactName.trim() : ''));
+      if (namesRequired && playerNames.some((x) => !x)) throw new Error('Enter the name of every player. The club asks for all names.');
+      const body = { ...f, playerNames, players: n, playerTypes: players, holes: q.holes, carts: q.carts, caddies: q.caddies, gallery: q.gallery, extras, layoutId, day };
+      const made = cell ? await api<StaffBooking>(`/courses/${courseId}/bookings`, { method: 'POST', body: { ...body, startTee: cell.startTee, time: cell.time } })
+        : await api<StaffBooking>(`/courses/${courseId}/specials`, { method: 'POST', body: { ...body, time } });
+      onDone(made);
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
   return (
     <Sheet open title={cell ? `${formatTime(cell.time)}${(layout?.startTees.length ?? 1) > 1 ? ` from tee ${cell.startTee}` : ''}` : 'Special booking'} eyebrow={formatDay(day)} onClose={onClose} watch={{ f, counts }} width={600}
-      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={busy || !n} onClick={() => void go()}>{busy ? 'Booking…' : `${cell ? 'Book' : 'Accept'} ${n} ${n === 1 ? 'player' : 'players'} · ${peso(q.total)}`}</Btn></>}>
+      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={busy || !n} onClick={() => void go()}>{busy ? 'Booking…' : `${cell ? 'Book' : 'Accept'} ${n} ${n === 1 ? 'player' : 'players'} · ${peso(withBooking)}`}</Btn></>}>
       {cell?.block ? <p className="fore-note held">This time is held for {cell.block.reason.toLowerCase()}. You can still book it here.</p> : null}
       {!cell ? (
         <>
@@ -88,6 +93,19 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
         ))}
         {offered.length > 1 ? <div className="fore-bk-line"><span><b>Holes</b></span><Seg value={String(holes)} onChange={(v) => setHoles(v === '9' ? 9 : 18)} options={offered.map((h) => ({ value: String(h), label: `${h} holes` }))} /></div> : null}
       </div>
+
+      {n ? (
+        <div className="fore-bk-group fore-names">
+          <div className="fore-bk-head"><b>Player names</b><span className="muted small">{namesRequired ? 'Required for every player' : 'Optional'}</span></div>
+          {players.map((typeId, i) => (
+            <label key={i} className="fore-bk-line">
+              <span><b>Player {i + 1}</b><small>{types.find((t) => t.id === typeId)?.name}</small></span>
+              <input className="input" aria-label={`Name of player ${i + 1}`} value={names[i] ?? ''} placeholder={i === 0 ? f.contactName || 'Name for the booking' : namesRequired ? 'Name' : 'Name (optional)'}
+                onChange={(e) => { const next = [...names]; next[i] = e.target.value; setNames(next); }} />
+            </label>
+          ))}
+        </div>
+      ) : null}
 
       {cart || caddie || setup.options.galleryMax > 0 || optional.length ? (
         <div className="fore-bk-group">
@@ -124,24 +142,31 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
 }
 
 /** The price, line by line, with what's paid at the course marked. */
-export function Price({ lines, total, problems = [] }: { lines: QuoteLine[]; total: number; problems?: string[] }) {
+export function Price({ lines, problems = [] }: { lines: QuoteLine[]; total?: number; problems?: string[] }) {
   // Bookings priced before payment targets were named say 'app' and 'course'.
   const to = (l: QuoteLine): string => (l.payAt as string) === 'app' ? 'booking' : (l.payAt as string) === 'course' ? 'counter' : l.payAt;
-  const sum = (p: string) => lines.filter((l) => to(l) === p).reduce((s, l) => s + l.amount, 0);
-  const parts = [[sum('booking'), 'with the booking'], [sum('counter'), 'separately at the counter'], [sum('direct'), 'at least, to the caddies']] as const;
-  const shown = parts.filter(([a]) => a > 0);
+  const withBooking = lines.filter((l) => to(l) === 'booking');
+  const separate = lines.filter((l) => to(l) !== 'booking');
+  const total = withBooking.reduce((s, l) => s + l.amount, 0);
+  const row = (l: QuoteLine) => (
+    <div key={l.key}>
+      <dt>{l.label}<small>{l.detail}{to(l) === 'counter' ? ', paid at the counter' : to(l) === 'direct' ? ' at least, paid direct to the caddie' : ''}</small></dt>
+      <dd>{peso(l.amount)}</dd>
+    </div>
+  );
   return (
     <div className="fore-price">
       {problems.length ? <ul className="fore-price-warn">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
       <dl>
-        {lines.map((l) => (
-          <div key={l.key}>
-            <dt>{l.label}<small>{l.detail}{to(l) === 'counter' ? ', paid separately at the counter' : to(l) === 'direct' ? ' at least, paid direct to the caddie' : ''}</small></dt>
-            <dd>{peso(l.amount)}</dd>
-          </div>
-        ))}
-        <div className="total"><dt>Total{shown.length > 1 ? <small>{shown.map(([a, w]) => `${peso(a)} ${w}`).join(', ')}</small> : null}</dt><dd>{peso(total)}</dd></div>
+        {withBooking.map(row)}
+        <div className="total"><dt>Total{separate.length ? <small>Paid with the booking</small> : null}</dt><dd>{peso(total)}</dd></div>
       </dl>
+      {separate.length ? (
+        <dl className="fore-price-sep">
+          <div className="sep-head"><dt>Paid separately</dt></div>
+          {separate.map(row)}
+        </dl>
+      ) : null}
     </div>
   );
 }
@@ -150,12 +175,21 @@ export function Price({ lines, total, problems = [] }: { lines: QuoteLine[]; tot
  * One booking: check in, mark played or no-show, cancel, move it to another time, record a payment at the
  * counter, or fix the golfer's details. View-only staff see it and change nothing.
  */
-export function BookingPanel({ courseId, b, setup, readOnly, onClose, onDone }: {
-  courseId: string; b: StaffBooking; setup: CourseSetup; readOnly?: boolean; onClose: () => void; onDone: () => void;
+export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, onDone }: {
+  courseId: string; b: StaffBooking; setup: CourseSetup; readOnly?: boolean; justMade?: boolean; onClose: () => void; onDone: () => void;
 }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [reason, setReason] = useState('');
-  const [mode, setMode] = useState<'view' | 'cancel' | 'move' | 'pay' | 'edit'>('view');
+  // Just booked by phone, Viber or at the counter: go straight to taking the payment.
+  const [mode, setMode] = useState<'view' | 'cancel' | 'move' | 'pay' | 'edit'>(justMade && !readOnly && b.payStatus === 'unpaid' ? 'pay' : 'view');
+  const pencil = isPencil(b, Date.now());
+  const [roster, setRoster] = useState<{ n: number; name: string; player_type_id: string }[]>([]);
+  useEffect(() => {
+    let live = true;
+    api<{ players: { n: number; name: string; player_type_id: string }[] }>(`/courses/${courseId}/bookings/${b.id}`).then((r) => { if (live) setRoster(r.players); }).catch(() => { /* names are extra */ });
+    return () => { live = false; };
+  }, [courseId, b.id]);
+  const typeName = (id: string) => setup.playerTypes.find((t) => t.id === id)?.name ?? '';
   const act = async (path: string, body?: unknown) => {
     setMsg(null);
     try { await api(`/courses/${courseId}/bookings/${b.id}/${path}`, { method: 'POST', body: body ?? {} }); onDone(); } catch (e) { setMsg((e as Error).message); }
@@ -171,10 +205,17 @@ export function BookingPanel({ courseId, b, setup, readOnly, onClose, onDone }: 
         {b.carts || b.caddies || b.gallery ? <div><dt>With</dt><dd>{[b.carts ? `${b.carts} ${b.carts === 1 ? 'cart' : 'carts'}` : '', b.caddies ? `${b.caddies} ${b.caddies === 1 ? 'caddie' : 'caddies'}` : '', b.gallery ? `${b.gallery} gallery` : ''].filter(Boolean).join(', ')}</dd></div> : null}
         <div><dt>Booked by</dt><dd>{CHANNEL[b.channel] ?? b.channel}</dd></div>
         <div><dt>Reference</dt><dd className="fore-ref">{b.ref}</dd></div>
-        <div><dt>Payment</dt><dd>{b.payStatus === 'paid_course' ? `${peso(b.paidAmount)} paid at the counter${b.paidMethod ? `, ${METHOD[b.paidMethod] ?? b.paidMethod}` : ''}` : b.payStatus === 'paid_online' ? 'Paid in the app' : 'Not paid yet'}</dd></div>
+        <div className={pencil ? 'wide' : ''}><dt>Payment</dt><dd>{b.payStatus === 'paid_course' ? `${peso(b.paidAmount)} paid at the counter${b.paidMethod ? `, ${METHOD[b.paidMethod] ?? b.paidMethod}` : ''}` : b.payStatus === 'paid_online' ? 'Paid in the app'
+          : pencil ? <span className="fore-pencil-note">Not paid in time: now a pencil booking. Others can book this time. Record the payment to put it back, if there’s still room.</span>
+            : b.payDueBy ? `Not paid yet. Keeps its tee time until ${new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Not paid yet'}</dd></div>
         {b.mobile ? <div><dt>Mobile</dt><dd><a href={`tel:${b.mobile}`}>{b.mobile}</a></dd></div> : null}
         {b.email ? <div><dt>Email</dt><dd><a href={`mailto:${b.email}`}>{b.email}</a></dd></div> : null}
         {b.notes ? <div className="wide"><dt>Note</dt><dd>{b.notes}</dd></div> : null}
+        {roster.length ? (
+          <div className="wide"><dt>Players</dt><dd>
+            <ol className="fore-roster">{roster.map((p) => <li key={p.n}><span>{p.name || <i>No name yet</i>}</span><small>{typeName(p.player_type_id)}</small></li>)}</ol>
+          </dd></div>
+        ) : null}
       </dl>
       {b.quote?.length ? <Price lines={b.quote} total={b.amount} /> : null}
 
@@ -199,8 +240,8 @@ export function BookingPanel({ courseId, b, setup, readOnly, onClose, onDone }: 
           <div className="row"><Btn kind="danger" onClick={() => void act('cancel', { reason })}>Cancel booking</Btn><Btn kind="ghost" onClick={() => setMode('view')}>Keep it</Btn></div>
         </div>
       ) : mode === 'move' ? <MoveBooking courseId={courseId} b={b} setup={setup} onBack={() => setMode('view')} onDone={onDone} />
-        : mode === 'pay' ? <RecordPayment courseId={courseId} b={b} onBack={() => setMode('view')} onDone={onDone} />
-          : <EditDetails courseId={courseId} b={b} onBack={() => setMode('view')} onDone={onDone} />}
+        : mode === 'pay' ? <RecordPayment courseId={courseId} b={b} justMade={justMade} onBack={justMade ? onClose : () => setMode('view')} onDone={onDone} />
+          : <EditDetails courseId={courseId} b={b} roster={roster} typeName={typeName} required={setup.rules.playerNames === 'required'} onBack={() => setMode('view')} onDone={onDone} />}
       {msg ? <p className="fore-error">{msg}</p> : null}
     </Sheet>
   );
@@ -257,9 +298,9 @@ function MoveBooking({ courseId, b, setup, onBack, onDone }: { courseId: string;
 }
 
 /** Payment taken at the counter: cash, GCash, Maya, card or bank transfer, with its reference number. */
-function RecordPayment({ courseId, b, onBack, onDone }: { courseId: string; b: StaffBooking; onBack: () => void; onDone: () => void }) {
-  // What the counter collects: everything except fees paid straight to the caddie.
-  const due = (b.quote ?? []).filter((l) => (l.payAt as string) !== 'direct').reduce((s, l) => s + l.amount, 0) || b.amount;
+function RecordPayment({ courseId, b, justMade, onBack, onDone }: { courseId: string; b: StaffBooking; justMade?: boolean; onBack: () => void; onDone: () => void }) {
+  // The total paid with the booking; fees paid separately (at the counter, or direct to the caddie) are not part of it.
+  const due = b.quote?.length ? b.quote.filter((l) => (l.payAt as string) === 'booking' || (l.payAt as string) === 'app').reduce((s, l) => s + l.amount, 0) : b.amount;
   const [amount, setAmount] = useState(String(due / 100));
   const [method, setMethod] = useState('cash');
   const [ref, setRef] = useState('');
@@ -276,25 +317,29 @@ function RecordPayment({ courseId, b, onBack, onDone }: { courseId: string; b: S
   };
   return (
     <div className="fore-subform">
-      <b>Record payment at the counter</b>
+      <b>{justMade ? `Booked: ${b.ref}. Take the payment now?` : 'Record payment at the counter'}</b>
       <Seg value={method} onChange={setMethod} options={[{ value: 'cash', label: 'Cash' }, { value: 'gcash', label: 'GCash' }, { value: 'maya', label: 'Maya' }, { value: 'card', label: 'Card' }, { value: 'bank', label: 'Bank' }]} />
       <div className="grid fore-2">
         <Field label="Amount paid (₱)" inputMode="decimal" value={amount} onChange={setAmount} hint={`Due at the counter: ${peso(due)}`} />
         {method !== 'cash' ? <Field label="Reference number" value={ref} onChange={setRef} placeholder="From the receipt or app" /> : null}
       </div>
       {msg ? <p className="fore-error">{msg}</p> : null}
-      <div className="row"><Btn kind="primary" disabled={busy} onClick={() => void go()}>Record {method === 'cash' ? 'cash' : METHOD[method]} payment</Btn><Btn kind="ghost" onClick={onBack}>Back</Btn></div>
+      {justMade && b.payDueBy ? <p className="muted small">Not paying now? The booking keeps its tee time until {new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. After that it becomes a pencil booking and others can book the time.</p> : null}
+      <div className="row"><Btn kind="primary" disabled={busy} onClick={() => void go()}>Record {method === 'cash' ? 'cash' : METHOD[method]} payment</Btn><Btn kind="ghost" onClick={onBack}>{justMade ? 'Pay later' : 'Back'}</Btn></div>
     </div>
   );
 }
 
-function EditDetails({ courseId, b, onBack, onDone }: { courseId: string; b: StaffBooking; onBack: () => void; onDone: () => void }) {
+function EditDetails({ courseId, b, roster, typeName, required, onBack, onDone }: {
+  courseId: string; b: StaffBooking; roster: { n: number; name: string; player_type_id: string }[]; typeName: (id: string) => string; required: boolean; onBack: () => void; onDone: () => void;
+}) {
   const [f, setF] = useState({ contactName: b.contactName, mobile: b.mobile, email: b.email ?? '', notes: b.notes });
+  const [names, setNames] = useState<string[]>(() => roster.map((p) => p.name));
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const go = async () => {
     setBusy(true); setMsg(null);
-    try { await api(`/courses/${courseId}/bookings/${b.id}`, { method: 'PATCH', body: f }); onDone(); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+    try { await api(`/courses/${courseId}/bookings/${b.id}`, { method: 'PATCH', body: roster.length ? { ...f, playerNames: names } : f }); onDone(); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
   return (
     <div className="fore-subform">
@@ -305,6 +350,9 @@ function EditDetails({ courseId, b, onBack, onDone }: { courseId: string; b: Sta
         <Field label="Email" type="email" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
       </div>
       <Field label="Note" value={f.notes} onChange={(v) => setF({ ...f, notes: v })} />
+      {roster.map((p, idx) => (
+        <Field key={p.n} label={`Player ${p.n}, ${typeName(p.player_type_id)}${required ? '' : ' (optional)'}`} value={names[idx] ?? ''} onChange={(v) => { const next = [...names]; next[idx] = v; setNames(next); }} />
+      ))}
       {msg ? <p className="fore-error">{msg}</p> : null}
       <div className="row"><Btn kind="primary" disabled={busy} onClick={() => void go()}>Save details</Btn><Btn kind="ghost" onClick={onBack}>Back</Btn></div>
     </div>

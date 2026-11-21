@@ -297,6 +297,8 @@ export async function saveRules(db: Db, c: Caller, id: string, input: Record<str
     minPlayersWeekday: int(input.minPlayersWeekday ?? 1, 'the fewest players on weekdays', 1, 5),
     minPlayersWeekend: int(input.minPlayersWeekend ?? 1, 'the fewest players on weekends', 1, 5),
     shareTeeTimes: input.shareTeeTimes !== false,
+    playerNames: input.playerNames === 'required' ? 'required' : 'optional',
+    paymentGraceHours: input.paymentGraceHours === null || input.paymentGraceHours === undefined || input.paymentGraceHours === '' ? null : int(input.paymentGraceHours, 'the hours to pay', 1, 168),
   };
   await db.tx(async (q) => {
     await q.query('update courses set rules = $2 where business_id = $1', [id, JSON.stringify(r)]);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Btn } from '@maison/core/ui/kit';
-import { addDays, daysBetween, formatTime, localParts, STATUS_WORDS, weekday, type CourseSetup } from '@maison/engine';
+import { addDays, daysBetween, formatTime, isPencil, localParts, STATUS_WORDS, weekday, type CourseSetup } from '@maison/engine';
 import { api, type DaySummary, type SheetData, type SheetReply, type StaffBooking, type StaffSlot } from '../api';
 import { Balls, BookingPanel, HoldClose, NewBooking } from './panels';
 
@@ -92,6 +92,7 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
   const [problem, setProblem] = useState<string | null>(null);
   const [adding, setAdding] = useState<StaffSlot | null>(null);
   const [open, setOpen] = useState<StaffBooking | null>(null);
+  const [justMade, setJustMade] = useState(false);
   const [holding, setHolding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const seq = useRef<number | null>(null);
@@ -192,9 +193,9 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
           })}
         </div>
       )}
-      {specialing ? <NewBooking courseId={courseId} special={{ day }} setup={setup} onClose={() => setSpecialing(false)} onDone={() => after()} /> : null}
-      {adding ? <NewBooking courseId={courseId} cell={adding} setup={setup} onClose={() => setAdding(null)} onDone={() => after()} /> : null}
-      {open ? <BookingPanel courseId={courseId} b={open} setup={setup} readOnly={readOnly} onClose={() => setOpen(null)} onDone={() => after()} /> : null}
+      {specialing ? <NewBooking courseId={courseId} special={{ day }} setup={setup} onClose={() => setSpecialing(false)} onDone={(made) => { after(); if (made) { setOpen(made); setJustMade(true); } }} /> : null}
+      {adding ? <NewBooking courseId={courseId} cell={adding} setup={setup} onClose={() => setAdding(null)} onDone={(made) => { after(); if (made) { setOpen(made); setJustMade(true); } }} /> : null}
+      {open ? <BookingPanel key={open.id} courseId={courseId} b={open} setup={setup} readOnly={readOnly} justMade={justMade} onClose={() => { setOpen(null); setJustMade(false); }} onDone={() => { setJustMade(false); after(); }} /> : null}
       {holding && L ? <HoldClose courseId={courseId} day={day} tees={tees} layoutId={L.layout.id} firstTee={times[0]} lastTee={times.at(-1)} onClose={() => setHolding(false)} onDone={after} /> : null}
     </>
   );
@@ -207,10 +208,10 @@ function Flight({ c, onAdd, onOpen }: { c: StaffSlot; onAdd?: (c: StaffSlot) => 
       {c.state === 'closed' ? <span className="fore-closed">{c.block?.reason ?? 'Closed'}</span> : <Balls capacity={c.capacity} used={c.used} />}
       <div className="fore-who">
         {c.bookings.map((b) => (
-          <button key={b.id} className={`fore-golfer b-${b.status}`} onClick={() => onOpen(b)}>
+          <button key={b.id} className={`fore-golfer b-${isPencil(b, Date.now()) ? 'pencil' : b.status}`} onClick={() => onOpen(b)}>
             <span className="n">{b.contactName}</span>
             <span className="p">{b.players}</span>
-            {b.status !== 'confirmed' ? <span className="st">{STATUS_WORDS[b.status]}</span> : null}
+            {isPencil(b, Date.now()) ? <span className="st">Pencil</span> : b.status !== 'confirmed' ? <span className="st">{STATUS_WORDS[b.status]}</span> : null}
           </button>
         ))}
         {c.state === 'held' && !c.bookings.length ? <span className="fore-held">{c.block?.reason ?? 'Held'}</span> : null}

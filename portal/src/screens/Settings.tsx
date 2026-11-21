@@ -425,6 +425,7 @@ function FeeCard({ f, title, sub, policy, onPolicy, policies, upd, types, nine, 
 
 // ---------------------------------------------------------------- booking rules
 
+const GRACE = [{ value: '', label: 'Until paid' }, ...[1, 2, 3, 4, 6, 12, 24, 48, 72].map((h) => ({ value: String(h), label: h < 24 ? `${h} ${h === 1 ? 'hour' : 'hours'}` : `${h / 24} ${h === 24 ? 'day' : 'days'}` }))];
 const FEWEST = ['1', '2', '3', '4'].map((n) => ({ value: n, label: n === '1' ? '1 (solo)' : `${n} players` }));
 
 function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<void> }) {
@@ -446,6 +447,9 @@ function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<v
         {item('No-shows', 'No-shows in 90 days before a golfer can’t book in the app. 0 = never.', <Field label="No-shows" inputMode="numeric" value={String(f.noShowLimit)} onChange={num('noShowLimit')} sm />)}
         {item('Fewest players, Monday to Friday', 'The smallest group golfers can book in the app. 1 = a solo golfer can book.', <Select aria-label="Fewest players on weekdays" value={String(f.minPlayersWeekday ?? 1)} onChange={(v) => setF({ ...f, minPlayersWeekday: Number(v) })} options={FEWEST} />)}
         {item('Fewest players, weekends and holidays', 'Many courses ask for bigger groups on busy days.', <Select aria-label="Fewest players on weekends" value={String(f.minPlayersWeekend ?? 1)} onChange={(v) => setF({ ...f, minPlayersWeekend: Number(v) })} options={FEWEST} />)}
+        {item('Time to pay, phone, Viber and walk-in bookings', 'How long an unpaid booking keeps its tee time after it’s made. After that it becomes a pencil booking: it stays on the sheet, but others can book the time.',
+          <Select aria-label="Time to pay" value={f.paymentGraceHours === null || f.paymentGraceHours === undefined ? '' : String(f.paymentGraceHours)} onChange={(v) => setF({ ...f, paymentGraceHours: v === '' ? null : Number(v) })} options={GRACE} />)}
+        {item('Player names', 'Required: staff and golfers give every player’s name when booking. Optional: only the name for the booking.', <Seg value={f.playerNames === 'required' ? 'required' : 'optional'} onChange={(v) => setF({ ...f, playerNames: v === 'required' ? 'required' : 'optional' })} options={[{ value: 'optional', label: 'Optional' }, { value: 'required', label: 'Required' }]} />)}
         {item('Groups share a tee time', 'On: different groups can book the same tee time until it’s full. Off: one group per tee time.', <Seg value={f.shareTeeTimes === false ? 'no' : 'yes'} onChange={(v) => setF({ ...f, shareTeeTimes: v === 'yes' })} options={[{ value: 'yes', label: 'Share' }, { value: 'no', label: 'One group' }]} />)}
       </div>
       <SaveBar label="Save booking rules" busy={busy} msg={msg} onSave={() => void run([[`/courses/${data.course.id}/rules`, { ...f, releaseTime: toMin(f.releaseTimeText) }]])} />

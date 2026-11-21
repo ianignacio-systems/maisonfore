@@ -1,10 +1,10 @@
 import type { Caller, Db } from '@maison/core';
-import { addDays, buildSheet, localParts, takesSlot, type QuoteLine } from '@maison/engine';
+import { addDays, buildSheet, isPencil, localParts, takesSlot, type QuoteLine } from '@maison/engine';
 import { BOOKING_COLS, bookingOf, daySummary, type BookingRow } from './bookings';
 import { CAN, loadSetup, roleAt } from './courses';
 
-/** What the course collects for a booking: its price less fees paid straight to the caddie. */
-const collectable = (b: BookingRow) => (b.quote.length ? b.quote.filter((l: QuoteLine) => (l.payAt as string) !== 'direct').reduce((s, l) => s + l.amount, 0) : b.amount);
+/** What is paid with the booking: its price less fees paid separately (at the counter, or direct to the caddie). */
+const collectable = (b: BookingRow) => (b.quote.length ? b.quote.filter((l: QuoteLine) => (l.payAt as string) === 'booking' || (l.payAt as string) === 'app').reduce((s, l) => s + l.amount, 0) : b.amount);
 const paid = (b: BookingRow) => (b.payStatus === 'unpaid' ? 0 : b.payStatus === 'paid_online' ? b.payInApp || collectable(b) : b.paidAmount);
 
 /**
@@ -43,6 +43,11 @@ export async function overview(db: Db, c: Caller, courseId: string, now = Date.n
   if (unpaidPlayed.length) {
     attention.push({ kind: 'unpaid', day: unpaidPlayed[0].day,
       text: `${unpaidPlayed.length} ${unpaidPlayed.length === 1 ? 'round' : 'rounds'} played in the last 7 days with no payment recorded: ₱${(unpaidPlayed.reduce((n, b) => n + collectable(b), 0) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}.` });
+  }
+  const pencils = rows.filter((b) => b.day >= today && isPencil(b, now));
+  if (pencils.length) {
+    attention.push({ kind: 'pencil', day: pencils[0].day,
+      text: `${pencils.length} unpaid ${pencils.length === 1 ? 'booking ran' : 'bookings ran'} out of time to pay and ${pencils.length === 1 ? 'is now a pencil booking' : 'are now pencil bookings'}: others can book ${pencils.length === 1 ? 'its time' : 'their times'}. Call to collect, or cancel.` });
   }
   const heldOpen = rows.filter((b) => b.status === 'held' && takesSlot(b, now));
   if (heldOpen.length) attention.push({ kind: 'held', day: heldOpen[0].day, text: `${heldOpen.length} ${heldOpen.length === 1 ? 'booking is' : 'bookings are'} on hold, waiting to be confirmed.` });

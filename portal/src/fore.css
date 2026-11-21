@@ -176,6 +176,11 @@ button, input, select, textarea { font-family: inherit; }
 .fore-golfer.b-checked_in, .fore-golfer.b-played { background: #d7ecdf; }
 .fore-golfer.b-checked_in .st, .fore-golfer.b-played .st { color: var(--ok); }
 .fore-golfer.b-no_show { background: var(--clay-soft); }
+.fore-golfer.b-pencil { background: transparent; box-shadow: inset 0 0 0 1.5px #c9b48a; border: 0; }
+.fore-golfer.b-pencil .n { font-style: italic; color: var(--sand-ink); }
+.fore-golfer.b-pencil .p { background: #c9b48a; }
+.fore-golfer.b-pencil .st { color: var(--sand-ink); }
+.fore-pencil-note { display: block; padding: 8px 10px; border-radius: 9px; background: var(--sand); color: var(--sand-ink); font-weight: 500; }
 .fore-golfer.b-no_show .p { background: var(--clay); }
 .fore-golfer.b-no_show .st { color: var(--clay); }
 .fore-held { font-size: 13px; font-weight: 600; color: var(--sand-ink); }
@@ -606,4 +611,15 @@ button, input, select, textarea { font-family: inherit; }
   .fore-sum-actions { margin-left: 0; grid-column: 1 / -1; }
 }
 
+/* player names and fees paid separately */
+.fore-names .fore-bk-line .input { width: 60%; max-width: 300px; height: 38px; }
+.fore-names .fore-bk-line { cursor: default; }
+.fore-roster { margin: 2px 0 0; padding-left: 20px; font-weight: 500; }
+.fore-roster li { padding: 2px 0; }
+.fore-roster li::marker { font-family: var(--font); font-weight: 600; color: var(--muted); }
+.fore-roster small { color: var(--muted); font-size: 12px; margin-left: 8px; font-weight: 400; }
+.fore-roster i { color: var(--muted); font-weight: 400; }
+.fore-price-sep { margin: 0; padding-top: 4px; border-top: 1px dashed var(--line); }
+.fore-price-sep .sep-head dt { font-size: 12px; font-weight: 700; color: var(--sand-ink); padding-top: 4px; }
+.fore-price-sep dd { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

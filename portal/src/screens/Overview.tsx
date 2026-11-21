@@ -58,7 +58,7 @@ export function Overview({ data, openDay, openSetup }: { data: CourseData; openD
             <Fig label="Players today" value={`${o.todayFigures.players}`} sub={`of ${o.todayFigures.capacity} spots, ${pct(o.todayFigures.players, o.todayFigures.capacity)}% full`}
               bar={pct(o.todayFigures.players, o.todayFigures.capacity)} />
             <Fig label="Checked in" value={`${o.todayFigures.checkedIn}`} sub={`of ${o.todayFigures.players} players, ${o.todayFigures.bookings} bookings`} />
-            <Fig label="Booked today" value={peso(o.todayFigures.booked)} sub={o.todayFigures.booked ? `${peso(o.todayFigures.collected)} collected, ${peso(Math.max(0, o.todayFigures.booked - o.todayFigures.collected))} to go` : 'Not counting caddie fees paid direct'} />
+            <Fig label="Booked today" value={peso(o.todayFigures.booked)} sub={o.todayFigures.booked ? `${peso(o.todayFigures.collected)} collected, ${peso(Math.max(0, o.todayFigures.booked - o.todayFigures.collected))} to go` : 'Not counting fees paid separately'} />
             <Fig label="No-shows, last 30 days" value={`${o.last30.noShows}`} sub={o.last30.noShows ? `${Math.round(o.last30.noShowRate * 100)}% of bookings` : 'None'} />
           </section>
           {o.todayFigures.closedNote ? <p className="fore-alert warn">{o.todayFigures.closedNote}</p> : null}
