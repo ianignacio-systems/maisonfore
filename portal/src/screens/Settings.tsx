@@ -425,6 +425,8 @@ function FeeCard({ f, title, sub, policy, onPolicy, policies, upd, types, nine, 
 
 // ---------------------------------------------------------------- booking rules
 
+const FEWEST = ['1', '2', '3', '4'].map((n) => ({ value: n, label: n === '1' ? '1 (solo)' : `${n} players` }));
+
 function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<void> }) {
   const r = data.setup.rules;
   const [f, setF] = useState({ ...r, releaseTimeText: toTime(r.releaseTime) });
@@ -433,7 +435,7 @@ function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<v
   const item = (label: string, hint: string, field: ReactNode) => <div className="fore-rule"><div><b>{label}</b><span>{hint}</span></div>{field}</div>;
   return (
     <section>
-      <PaneHead title="Booking rules" sub="What golfers can do in the app. Staff can always book, move and cancel from the tee sheet." />
+      <PaneHead title="Booking rules" sub="What golfers can do in the app. Staff can book fewer players than the minimum, and owners and managers can always add a special booking." />
       <div className="fore-panel flush">
         {item('Book ahead', 'How many days ahead golfers can book.', <Field label="Days" inputMode="numeric" value={String(f.publicDaysAhead)} onChange={num('publicDaysAhead')} sm />)}
         {item('New day opens', 'The time each new day opens for booking.', <Field label="Time" type="time" value={f.releaseTimeText} onChange={(v) => setF({ ...f, releaseTimeText: v })} sm />)}
@@ -442,6 +444,9 @@ function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<v
         {item('Open bookings', 'Most upcoming bookings one golfer can have.', <Field label="Bookings" inputMode="numeric" value={String(f.maxOpenBookingsPerGolfer)} onChange={num('maxOpenBookingsPerGolfer')} sm />)}
         {item('Time to pay', 'Minutes a tee time is held while the golfer pays.', <Field label="Minutes" inputMode="numeric" value={String(f.holdMinutes)} onChange={num('holdMinutes')} sm />)}
         {item('No-shows', 'No-shows in 90 days before a golfer can’t book in the app. 0 = never.', <Field label="No-shows" inputMode="numeric" value={String(f.noShowLimit)} onChange={num('noShowLimit')} sm />)}
+        {item('Fewest players, Monday to Friday', 'The smallest group golfers can book in the app. 1 = a solo golfer can book.', <Select aria-label="Fewest players on weekdays" value={String(f.minPlayersWeekday ?? 1)} onChange={(v) => setF({ ...f, minPlayersWeekday: Number(v) })} options={FEWEST} />)}
+        {item('Fewest players, weekends and holidays', 'Many courses ask for bigger groups on busy days.', <Select aria-label="Fewest players on weekends" value={String(f.minPlayersWeekend ?? 1)} onChange={(v) => setF({ ...f, minPlayersWeekend: Number(v) })} options={FEWEST} />)}
+        {item('Groups share a tee time', 'On: different groups can book the same tee time until it’s full. Off: one group per tee time.', <Seg value={f.shareTeeTimes === false ? 'no' : 'yes'} onChange={(v) => setF({ ...f, shareTeeTimes: v === 'yes' })} options={[{ value: 'yes', label: 'Share' }, { value: 'no', label: 'One group' }]} />)}
       </div>
       <SaveBar label="Save booking rules" busy={busy} msg={msg} onSave={() => void run([[`/courses/${data.course.id}/rules`, { ...f, releaseTime: toMin(f.releaseTimeText) }]])} />
     </section>

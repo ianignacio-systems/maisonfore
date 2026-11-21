@@ -42,7 +42,7 @@ export interface DaySummary { day: string; used: number; capacity: number; booki
 export interface SheetData {
   unchanged: false; seq: number; day: string; now: number; timeZone: string;
   layouts: { layout: Layout; slots: StaffSlot[] }[];
-  blocks: Block[]; loose: StaffBooking[];
+  blocks: Block[]; loose: StaffBooking[]; specials?: StaffBooking[];
 }
 export type SheetReply = SheetData | { unchanged: true; seq: number };
 export type StaffSlot = Omit<Slot, 'bookings'> & { bookings: StaffBooking[] };

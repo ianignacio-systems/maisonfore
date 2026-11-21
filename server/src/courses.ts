@@ -294,6 +294,9 @@ export async function saveRules(db: Db, c: Caller, id: string, input: Record<str
     twilightFrom: input.twilightFrom === null || input.twilightFrom === '' || input.twilightFrom === undefined ? null : minutes(input.twilightFrom, 'the twilight start time'),
     noShowLimit: int(input.noShowLimit, 'the no-show limit', 0, 10),
     memberDaysAhead: null,
+    minPlayersWeekday: int(input.minPlayersWeekday ?? 1, 'the fewest players on weekdays', 1, 5),
+    minPlayersWeekend: int(input.minPlayersWeekend ?? 1, 'the fewest players on weekends', 1, 5),
+    shareTeeTimes: input.shareTeeTimes !== false,
   };
   await db.tx(async (q) => {
     await q.query('update courses set rules = $2 where business_id = $1', [id, JSON.stringify(r)]);

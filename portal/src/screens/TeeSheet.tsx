@@ -25,7 +25,9 @@ const hourLabel = (h: number) => `${((h + 11) % 12) + 1} ${h < 12 ? 'AM' : 'PM'}
  * every booking whatever the channel, holds and closures, and refreshes every few seconds. The week
  * shows how full each hour of each day is; tap a day to open it.
  */
-export function TeeSheet({ courseId, setup, courseName, readOnly, initialDay }: { courseId: string; setup: CourseSetup; courseName: string; readOnly?: boolean; initialDay?: string }) {
+export function TeeSheet({ courseId, setup, courseName, readOnly, canSpecial, initialDay }: { courseId: string; setup: CourseSetup; courseName: string; readOnly?: boolean; canSpecial?: boolean; initialDay?: string }) {
+  const page = useRef<HTMLDivElement>(null);
+  const top = useStuckHeight(page, '--top-h');
   const today = localParts(Date.now(), setup.timeZone).day;
   const [view, setView] = useState<View>(() => { if (initialDay) return 'day'; try { return (localStorage.getItem('fore.view') as View) || 'day'; } catch { return 'day'; } });
   const [day, setDay] = useState(initialDay ?? today);
@@ -43,7 +45,8 @@ export function TeeSheet({ courseId, setup, courseName, readOnly, initialDay }: 
   const sub = view === 'day' ? (day === today ? 'Today' : day === addDays(today, 1) ? 'Tomorrow' : day === addDays(today, -1) ? 'Yesterday' : relDays(today, day)) : 'Week';
 
   return (
-    <div className="fore-page">
+    <div className="fore-page" ref={page}>
+      <div className="fore-top" ref={top}>
       <header className="fore-bar">
         <div className="fore-title">
           <span className="fore-kicker">{sub}{layouts.length > 1 ? null : ` at ${courseName}`}</span>
@@ -68,8 +71,9 @@ export function TeeSheet({ courseId, setup, courseName, readOnly, initialDay }: 
       {layouts.length > 1 ? (
         <div className="fore-layouts">{layouts.map((l, i) => <button key={l.id} className={i === layoutIx ? 'on' : ''} onClick={() => setLayoutIx(i)}>{l.name}</button>)}</div>
       ) : null}
+      </div>
       {!layout ? <p className="fore-empty">No tee times are set up yet. Add them in Settings.</p>
-        : view === 'day' ? <DayView key={`${day}-${layout.id}`} courseId={courseId} setup={setup} day={day} today={today} layoutId={layout.id} readOnly={readOnly} />
+        : view === 'day' ? <DayView key={`${day}-${layout.id}`} courseId={courseId} setup={setup} day={day} today={today} layoutId={layout.id} readOnly={readOnly} canSpecial={canSpecial} page={page} />
           : <WeekView key={`${weekStart}-${layout.id}`} courseId={courseId} weekStart={weekStart} today={today} layoutId={layout.id} onOpen={(d) => { setDay(d); pick('day'); }} onSwipe={(dir) => setDay(addDays(day, dir * 7))} />}
     </div>
   );
@@ -77,7 +81,13 @@ export function TeeSheet({ courseId, setup, courseName, readOnly, initialDay }: 
 
 // ---------------------------------------------------------------- day
 
-function DayView({ courseId, setup, day, today, layoutId, readOnly }: { courseId: string; setup: CourseSetup; day: string; today: string; layoutId: string; readOnly?: boolean }) {
+function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, page }: {
+  courseId: string; setup: CourseSetup; day: string; today: string; layoutId: string; readOnly?: boolean; canSpecial?: boolean; page: React.RefObject<HTMLDivElement | null>;
+}) {
+  const summary = useStuckHeight(page, '--sum-h');
+  const [onlyOpen, setOnlyOpen] = useState(() => { try { return localStorage.getItem('fore.onlyOpen') === '1'; } catch { return false; } });
+  const toggleOpen = () => { const v = !onlyOpen; setOnlyOpen(v); try { localStorage.setItem('fore.onlyOpen', v ? '1' : '0'); } catch { /* private window */ } };
+  const [specialing, setSpecialing] = useState(false);
   const [sheet, setSheet] = useState<SheetData | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [adding, setAdding] = useState<StaffSlot | null>(null);
@@ -101,27 +111,37 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly }: { courseId
 
   const L = sheet?.layouts.find((l) => l.layout.id === layoutId);
   const tees = L?.layout.startTees ?? ['1'];
-  const times = useMemo(() => (L ? [...new Set(L.slots.map((s) => s.time))] : []), [L]);
+  const bookableSlot = (s: StaffSlot) => s.state !== 'past' && s.state !== 'closed' && s.free > 0;
+  const allTimes = useMemo(() => (L ? [...new Set(L.slots.map((s) => s.time))] : []), [L]);
+  const times = onlyOpen && L ? allTimes.filter((t) => L.slots.some((s) => s.time === t && bookableSlot(s))) : allTimes;
   const bookings = L ? L.slots.flatMap((s) => s.bookings) : [];
   const players = bookings.reduce((n, b) => n + b.players, 0);
   const capacity = L ? L.slots.filter((s) => s.state !== 'closed').reduce((n, s) => n + s.capacity, 0) : 0;
   const openTimes = L ? L.slots.filter((s) => s.state === 'open' || s.state === 'partial').length : 0;
   const checkedIn = bookings.filter((b) => b.status === 'checked_in' || b.status === 'played').length;
   const nowMin = day === today ? localParts(Date.now(), setup.timeZone).minutes : null;
-  const after = (note?: string) => { setAdding(null); setOpen(null); setHolding(false); setNotice(note ?? null); void load(true); };
+  const after = (note?: string) => { setAdding(null); setOpen(null); setHolding(false); setSpecialing(false); setNotice(note ?? null); void load(true); };
   const release = (id: string) => api(`/courses/${courseId}/blocks/${id}`, { method: 'DELETE' }).then(() => load(true)).catch((e) => setProblem(e.message));
 
   return (
     <>
-      <section className="fore-summary" aria-label="The day in numbers">
+      <section className="fore-summary" aria-label="The day in numbers" ref={summary}>
         <div className="fore-fill">
           <div className="fore-fill-bar"><span style={{ width: `${capacity ? Math.round((players / capacity) * 100) : 0}%` }} /></div>
-          <p><b>{players}</b> of {capacity} player spots booked</p>
+          <p><b>{players}</b> of {capacity} spots booked</p>
         </div>
         <p><b>{bookings.length}</b> {bookings.length === 1 ? 'booking' : 'bookings'}</p>
-        <p><b>{openTimes}</b> tee times with room</p>
+        <p><b>{openTimes}</b> times open</p>
         <p><b>{checkedIn}</b> checked in</p>
-        {readOnly ? <span className="muted small">View only</span> : <Btn kind="primary" onClick={() => setHolding(true)}>Hold or block times</Btn>}
+        <div className="fore-sum-actions">
+          <button className={`fore-chip-toggle${onlyOpen ? ' on' : ''}`} aria-pressed={onlyOpen} onClick={toggleOpen}><i aria-hidden />Only available times</button>
+          {readOnly ? <span className="muted small">View only</span> : (
+            <>
+              {canSpecial ? <Btn onClick={() => setSpecialing(true)}>Special booking</Btn> : null}
+              <Btn kind="primary" onClick={() => setHolding(true)}>Hold or block times</Btn>
+            </>
+          )}
+        </div>
       </section>
       {problem ? <p className="fore-alert crit">{problem}</p> : null}
       {notice ? <div className="fore-alert warn"><p>{notice}</p><button onClick={() => setNotice(null)}>Done</button></div> : null}
@@ -139,8 +159,21 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly }: { courseId
           })}
         </section>
       ) : null}
+      {sheet?.specials?.length ? (
+        <section className="fore-specials" aria-label="Special bookings">
+          <b>Special bookings</b>
+          {sheet.specials.map((b) => (
+            <button key={b.id} className={`fore-golfer b-${b.status}`} onClick={() => setOpen(b)}>
+              <span className="tm">{b.time < 0 ? 'No set time' : formatTime(b.time)}</span>
+              <span className="n">{b.contactName}</span>
+              <span className="p">{b.players}</span>
+              {b.status !== 'confirmed' ? <span className="st">{STATUS_WORDS[b.status]}</span> : null}
+            </button>
+          ))}
+        </section>
+      ) : null}
       {sheet?.loose.length ? <p className="fore-alert warn">{sheet.loose.length === 1 ? 'One booking is' : `${sheet.loose.length} bookings are`} on a tee time that’s no longer on the sheet: {sheet.loose.map((b) => `${b.contactName} at ${formatTime(b.time)}`).join(', ')}. Move {sheet.loose.length === 1 ? 'it' : 'them'} to another time.</p> : null}
-      {!sheet ? <p className="fore-empty">Loading the tee sheet…</p> : !L || !times.length ? <p className="fore-empty">No tee times on this day. Check the tee times in Settings.</p> : (
+      {!sheet ? <p className="fore-empty">Loading the tee sheet…</p> : !L || !allTimes.length ? <p className="fore-empty">No tee times on this day. Check the tee times in Settings.</p> : !times.length ? <p className="fore-empty">No available times left on this day. <button className="fore-link" onClick={toggleOpen}>Show all times</button></p> : (
         <div className={`fore-sheet tees-${tees.length}`}>
           <div className="fore-sheet-head">
             <span>Tee time</span>
@@ -159,6 +192,7 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly }: { courseId
           })}
         </div>
       )}
+      {specialing ? <NewBooking courseId={courseId} special={{ day }} setup={setup} onClose={() => setSpecialing(false)} onDone={() => after()} /> : null}
       {adding ? <NewBooking courseId={courseId} cell={adding} setup={setup} onClose={() => setAdding(null)} onDone={() => after()} /> : null}
       {open ? <BookingPanel courseId={courseId} b={open} setup={setup} readOnly={readOnly} onClose={() => setOpen(null)} onDone={() => after()} /> : null}
       {holding && L ? <HoldClose courseId={courseId} day={day} tees={tees} layoutId={L.layout.id} firstTee={times[0]} lastTee={times.at(-1)} onClose={() => setHolding(false)} onDone={after} /> : null}
@@ -184,6 +218,24 @@ function Flight({ c, onAdd, onOpen }: { c: StaffSlot; onAdd?: (c: StaffSlot) => 
       {bookable ? <button className={`fore-book${c.state === 'held' ? ' held' : ''}`} onClick={() => onAdd?.(c)} aria-label={`Book ${formatTime(c.time)}, tee ${c.startTee}${c.state === 'held' ? ', held' : ''}`}>{c.state === 'held' ? 'Book held time' : 'Book'}</button> : null}
     </div>
   );
+}
+
+/**
+ * Keeps a CSS variable on the page equal to an element's height, so the parts frozen below it (the day's
+ * summary, the column headings) stick just under it as the tee sheet scrolls.
+ */
+function useStuckHeight(page: React.RefObject<HTMLDivElement | null>, name: string) {
+  const ref = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = ref.current, host = page.current;
+    if (!el || !host) return;
+    const set = () => host.style.setProperty(name, `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => { ro.disconnect(); host.style.setProperty(name, '0px'); };
+  }, [page, name]);
+  return ref as React.RefObject<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
 // ---------------------------------------------------------------- week

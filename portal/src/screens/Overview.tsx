@@ -6,7 +6,7 @@ import { api, type CourseData } from '../api';
 interface OverviewData {
   today: string; nowMin: number;
   todayFigures: { players: number; capacity: number; bookings: number; checkedIn: number; noShows: number; booked: number; collected: number; closedNote: string | null };
-  next: { id: string; time: number; startTee: string; name: string; players: number; status: string; paid: boolean }[];
+  next: { id: string; time: number; special?: boolean; startTee: string; name: string; players: number; status: string; paid: boolean }[];
   week: { day: string; used: number; capacity: number; bookings: number; closed: boolean }[];
   attention: { kind: string; text: string; day: string }[];
   last30: {
@@ -70,8 +70,8 @@ export function Overview({ data, openDay, openSetup }: { data: CourseData; openD
                 <ol className="fore-ov-next">
                   {o.next.map((n) => (
                     <li key={n.id}>
-                      <span className="tm">{formatTime(n.time)}</span>
-                      <span className="nm"><b>{n.name}</b><small>{n.players} {n.players === 1 ? 'player' : 'players'}{n.startTee !== '1' ? `, tee ${n.startTee}` : ''}</small></span>
+                      <span className="tm">{n.time < 0 ? 'No set time' : formatTime(n.time)}</span>
+                      <span className="nm"><b>{n.name}</b><small>{n.players} {n.players === 1 ? 'player' : 'players'}{n.startTee !== '1' ? `, tee ${n.startTee}` : ''}{n.special ? ', special booking' : ''}</small></span>
                       <span className={`fore-status s-${n.status}`}>{STATUS_WORDS[n.status as keyof typeof STATUS_WORDS] ?? n.status}</span>
                       <span className="pay ok">{n.paid ? 'Paid' : ''}</span>
                     </li>

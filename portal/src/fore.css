@@ -150,7 +150,7 @@ button, input, select, textarea { font-family: inherit; }
 .fore-sheet { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: clip; }
 .fore-sheet-head, .fore-row { display: grid; grid-template-columns: 96px repeat(var(--tees, 1), minmax(0, 1fr)); }
 .fore-sheet.tees-2 { --tees: 2; }
-.fore-sheet-head { position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--muted); }
+.fore-sheet-head { position: sticky; top: calc(var(--top-h, 0px) + var(--sum-h, 0px)); z-index: 2; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--muted); }
 .fore-sheet-head span { padding: 10px 16px; }
 .fore-sheet-head span + span, .fore-flight { border-left: 1px solid var(--line); }
 .fore-row { border-top: 1px solid #e9efea; position: relative; }
@@ -576,6 +576,34 @@ button, input, select, textarea { font-family: inherit; }
   .fore-ov-week .col { width: 26px; height: 90px; }
   .fore-ov-week .ct { display: none; }
   .fore-ov-fig b { font-size: 24px; }
+}
+
+/* ------------------------------------------------------------ frozen top of the tee sheet */
+.fore-page { padding-top: 0; }
+.fore-top { position: sticky; top: 0; z-index: 6; background: var(--bg); padding-top: 24px; display: flex; flex-direction: column; gap: 12px; padding-bottom: 4px; }
+.fore-summary { position: sticky; top: var(--top-h, 0px); z-index: 5; box-shadow: 0 -16px 0 var(--bg), 0 6px 0 var(--bg); }
+.fore-sum-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.fore-summary { gap: 22px; padding: 12px 16px; }
+.fore-summary .fore-fill { min-width: 170px; }
+.fore-summary b { font-size: 19px; }
+.fore-rule .seg { flex: none; }
+@media (max-width: 1280px) { .fore-summary p:nth-of-type(4) { display: none; } }
+.fore-summary .fore-sum-actions .btn { margin-left: 0; }
+.fore-chip-toggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; font-size: 14px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
+.fore-chip-toggle i { width: 30px; height: 18px; border-radius: 9px; background: #cdd8d0; position: relative; transition: background 0.15s; }
+.fore-chip-toggle i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.fore-chip-toggle.on { box-shadow: inset 0 0 0 1.5px var(--fairway); }
+.fore-chip-toggle.on i { background: var(--fairway); }
+.fore-chip-toggle.on i::after { transform: translateX(12px); }
+.fore-specials { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; background: var(--flag-soft); }
+.fore-specials > b { font-size: 14px; margin-right: 4px; }
+.fore-specials .fore-golfer { background: #fff; }
+.fore-specials .tm { font-size: 12px; font-weight: 700; color: var(--sand-ink); }
+@media (max-width: 760px) {
+  .fore-top { position: static; padding-top: 16px; }
+  .fore-summary { position: static; box-shadow: none; }
+  .fore-sheet-head { top: 0; }
+  .fore-sum-actions { margin-left: 0; grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

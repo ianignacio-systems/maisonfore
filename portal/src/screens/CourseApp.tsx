@@ -61,7 +61,7 @@ export function CourseApp({ courseId, me }: { courseId: string; me: Me }) {
       </aside>
       <main className="main">
         {current === 'overview' ? <Overview data={data} openDay={openDay} openSetup={() => setTab('start')} /> : null}
-        {current === 'today' ? <TeeSheet key={jump?.n ?? 0} initialDay={jump?.day} courseId={courseId} setup={data.setup} courseName={data.course.name} readOnly={data.role === 'viewer'} /> : null}
+        {current === 'today' ? <TeeSheet key={jump?.n ?? 0} initialDay={jump?.day} courseId={courseId} setup={data.setup} courseName={data.course.name} readOnly={data.role === 'viewer'} canSpecial={canSetup} /> : null}
         {current === 'staff' ? <Staff courseId={courseId} slug={data.course.slug} /> : null}
         {current === 'start' ? <GettingStarted data={data} reload={load} go={setTab} /> : null}
         {current === 'setup' ? <Settings data={data} reload={load} /> : null}
@@ -131,7 +131,7 @@ const ACTION: Record<string, string> = {
   'course.send_back': 'Sent back by Maison', 'course.decline': 'Declined by Maison', 'course.pause': 'Paused by Maison',
   'setup.teetimes': 'Tee times changed', 'setup.rates': 'Players, green fees or holidays changed', 'setup.rules': 'Booking rules changed', 'setup.fees': 'Fees changed', 'setup.options': 'Course options changed',
   'staff.added': 'Staff added', 'staff.invited': 'Staff invited', 'staff.joined': 'Joined the staff', 'staff.role': 'Role changed', 'staff.removed': 'Removed from the staff',
-  'booking.created': 'Booking made', 'booking.held': 'Slot held', 'booking.confirmed': 'Booking confirmed', 'booking.checked_in': 'Checked in', 'booking.played': 'Played',
+  'booking.created': 'Booking made', 'booking.special': 'Special booking accepted', 'booking.held': 'Slot held', 'booking.confirmed': 'Booking confirmed', 'booking.checked_in': 'Checked in', 'booking.played': 'Played',
   'booking.cancelled': 'Booking cancelled', 'booking.no_show': 'No-show', 'booking.moved': 'Booking moved', 'booking.edited': 'Booking edited', 'booking.paid': 'Paid at the counter',
   'block.walkin': 'Held for walk-ins', 'block.regulars': 'Held for regulars', 'block.event': 'Held for an event', 'block.maintenance': 'Closed for maintenance', 'block.weather': 'Closed for weather', 'block.removed': 'Hold or closure removed',
 };

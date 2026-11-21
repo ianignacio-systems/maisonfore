@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_RULES,
   addDays, buildSheet, canChange, checkBooking, checkSettings, dayType, formatDay, formatTime, golferCanChange, isOpen, localParts, newRef,
   opensMessage, priceFor, publicWindow, settingsFor, takesSlot, teeTimes, zonedEpoch, type Block,
 } from '../src';
@@ -132,6 +133,24 @@ describe('checking a booking', () => {
     const blocks = [block({ from: 380, to: 390 })];
     expect(checkBooking(c, sheetOf('public', [], blocks), req)).toBe('6:20 AM is not available for booking.');
     expect(checkBooking(c, sheetOf('staff', [], blocks), { ...req, audience: 'staff' })).toBeNull();
+  });
+  it('applies the minimum players per booking to app bookings, by weekday or weekend', () => {
+    const c2 = course({ rules: { ...DEFAULT_RULES, publicDaysAhead: 60, minPlayersWeekday: 1, minPlayersWeekend: 2 } });
+    const mon = buildSheet(c2, { layoutId: 'L18', day: '2026-11-23', bookings: [], blocks: [], now: at('2026-11-22', '08:00'), audience: 'public' });
+    expect(checkBooking(c2, mon, { ...req, players: 1 })).toBeNull();
+    const sat = buildSheet(c2, { layoutId: 'L18', day: '2026-11-28', bookings: [], blocks: [], now: at('2026-11-22', '08:00'), audience: 'public' });
+    expect(checkBooking(c2, sat, { ...req, day: '2026-11-28', players: 1 })).toBe('Book at least 2 players on weekends and holidays.');
+    const satStaff = buildSheet(c2, { layoutId: 'L18', day: '2026-11-28', bookings: [], blocks: [], now: at('2026-11-22', '08:00'), audience: 'staff' });
+    expect(checkBooking(c2, satStaff, { ...req, day: '2026-11-28', players: 1, audience: 'staff' })).toBeNull();
+  });
+  it('keeps one group per tee time when sharing is off', () => {
+    const solo = course({ rules: { ...DEFAULT_RULES, shareTeeTimes: false } });
+    const s = buildSheet(solo, { layoutId: 'L18', day: '2026-11-23', bookings: [booking({ time: 380, players: 2 })], blocks: [], now: at('2026-11-22', '08:00'), audience: 'staff' });
+    expect(s.find((x) => x.time === 380)).toMatchObject({ state: 'full', free: 0, used: 2 });
+  });
+  it('leaves special bookings out of every slot', () => {
+    const s = buildSheet(course(), { layoutId: 'L18', day: '2026-11-23', bookings: [booking({ time: 380, players: 4, special: true })], blocks: [], now: at('2026-11-22', '08:00'), audience: 'staff' });
+    expect(s.find((x) => x.time === 380)).toMatchObject({ state: 'open', used: 0, free: 4 });
   });
   it('blocks event and tournament times for everyone, staff included', () => {
     const blocks = [{ id: 'E', layoutId: null, startTee: null, day: '2026-11-23', from: 360, to: 400, kind: 'event' as const, reason: 'Club championship', releaseAt: null }];

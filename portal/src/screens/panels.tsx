@@ -1,18 +1,30 @@
 import { useEffect, useState } from 'react';
 import { Btn, Field, Seg, Select, Sheet, Stepper } from '@maison/core/ui/kit';
-import { addDays, formatDay, formatTime, holesOffered, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
+import { addDays, formatDay, formatTime, holesOffered, minPlayers, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
 import { api, type SheetData, type StaffBooking, type StaffSlot } from '../api';
 
 const toMin = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const CHANNEL: Record<string, string> = { phone: 'Phone', viber: 'Viber', walkin: 'Walk-in', app: 'App', staff: 'Staff' };
 
-/** Book a phone, Viber or walk-in golfer into an open time: who's playing, holes, carts, caddies, gallery, and the price. */
-export function NewBooking({ courseId, cell, setup, onClose, onDone }: { courseId: string; cell: StaffSlot; setup: CourseSetup; onClose: () => void; onDone: () => void }) {
+/**
+ * Book a phone, Viber or walk-in golfer into an open time: who's playing, holes, carts, caddies, gallery, and
+ * the price. With `special` (owners and managers), a VIP, member or favour accepted outside the sheet: any
+ * time or none, never refused for a full or held time, charged like any booking by each player's type.
+ */
+export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: {
+  courseId: string; cell?: StaffSlot; special?: { day: string }; setup: CourseSetup; onClose: () => void; onDone: () => void;
+}) {
   const types = setup.playerTypes.filter((t) => t.active && !t.member);
   const first = (types.find((t) => t.public) ?? types[0])?.id ?? '';
-  const offered = holesOffered(setup, cell.layoutId);
+  const open = setup.layouts.filter((l) => l.active);
+  const [layoutId, setLayoutId] = useState(cell?.layoutId ?? open[0]?.id ?? '');
+  const [timeText, setTimeText] = useState('');
+  const day = cell?.day ?? special?.day ?? '';
+  const time = cell ? cell.time : timeText ? toMin(timeText) : null;
+  const room = cell ? cell.free : 5;
+  const offered = holesOffered(setup, layoutId);
   const [f, setF] = useState({ contactName: '', mobile: '', channel: 'phone', notes: '' });
-  const [counts, setCounts] = useState<Record<string, number>>({ [first]: Math.min(cell.free, 4) });
+  const [counts, setCounts] = useState<Record<string, number>>({ [first]: Math.min(room, 4) });
   const [holes, setHoles] = useState<9 | 18>(offered[0]);
   const [carts, setCarts] = useState(0);
   const [caddies, setCaddies] = useState(0);
@@ -20,16 +32,17 @@ export function NewBooking({ courseId, cell, setup, onClose, onDone }: { courseI
   const [extras, setExtras] = useState<string[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const layout = setup.layouts.find((l) => l.id === cell.layoutId);
+  const layout = setup.layouts.find((l) => l.id === layoutId);
   const players = types.flatMap((t) => Array.from({ length: counts[t.id] ?? 0 }, () => t.id));
   const n = players.length;
   const fee = (k: string) => setup.fees.find((x) => x.active && x.kind === k);
   const cart = fee('cart'), caddie = fee('caddie');
-  const q = quote(setup, { layoutId: cell.layoutId, day: cell.day, time: cell.time, holes, players, carts, caddies, gallery, extras });
+  const q = quote(setup, { layoutId, day, time: time ?? 0, holes, players, carts, caddies, gallery, extras });
+  const least = minPlayers(setup, day);
   const optional = setup.fees.filter((x) => x.active && x.kind === 'other' && !x.required);
   const setCount = (id: string, v: number) => {
     const others = n - (counts[id] ?? 0);
-    const next = { ...counts, [id]: Math.max(0, Math.min(v, cell.free - others)) };
+    const next = { ...counts, [id]: Math.max(0, Math.min(v, room - others)) };
     setCounts(next);
     const total = Object.values(next).reduce((a, b) => a + b, 0);
     setCarts((c) => Math.min(c, total)); setCaddies((c) => Math.min(c, total));
@@ -37,14 +50,25 @@ export function NewBooking({ courseId, cell, setup, onClose, onDone }: { courseI
   const go = async () => {
     setBusy(true); setMsg(null);
     try {
-      await api(`/courses/${courseId}/bookings`, { method: 'POST', body: { ...f, players: n, playerTypes: players, holes: q.holes, carts: q.carts, caddies: q.caddies, gallery: q.gallery, extras, layoutId: cell.layoutId, startTee: cell.startTee, day: cell.day, time: cell.time } });
+      const body = { ...f, players: n, playerTypes: players, holes: q.holes, carts: q.carts, caddies: q.caddies, gallery: q.gallery, extras, layoutId, day };
+      if (cell) await api(`/courses/${courseId}/bookings`, { method: 'POST', body: { ...body, startTee: cell.startTee, time: cell.time } });
+      else await api(`/courses/${courseId}/specials`, { method: 'POST', body: { ...body, time } });
       onDone();
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
   return (
-    <Sheet open title={`${formatTime(cell.time)}${(layout?.startTees.length ?? 1) > 1 ? ` from tee ${cell.startTee}` : ''}`} eyebrow={formatDay(cell.day)} onClose={onClose} watch={{ f, counts }} width={600}
-      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={busy || !n} onClick={() => void go()}>{busy ? 'Booking…' : `Book ${n} ${n === 1 ? 'player' : 'players'} · ${peso(q.total)}`}</Btn></>}>
-      {cell.block ? <p className="fore-note held">This time is held for {cell.block.reason.toLowerCase()}. You can still book it here.</p> : null}
+    <Sheet open title={cell ? `${formatTime(cell.time)}${(layout?.startTees.length ?? 1) > 1 ? ` from tee ${cell.startTee}` : ''}` : 'Special booking'} eyebrow={formatDay(day)} onClose={onClose} watch={{ f, counts }} width={600}
+      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={busy || !n} onClick={() => void go()}>{busy ? 'Booking…' : `${cell ? 'Book' : 'Accept'} ${n} ${n === 1 ? 'player' : 'players'} · ${peso(q.total)}`}</Btn></>}>
+      {cell?.block ? <p className="fore-note held">This time is held for {cell.block.reason.toLowerCase()}. You can still book it here.</p> : null}
+      {!cell ? (
+        <>
+          <p className="fore-kind-note">For a VIP, a member or a special case. It doesn’t take any tee time’s spots, so you can accept it even when the sheet is full or held. It’s charged like any booking, by each player’s type.</p>
+          <div className={`grid ${open.length > 1 ? 'fore-2' : ''}`}>
+            <Field label="Tee time (optional)" type="time" value={timeText} onChange={setTimeText} hint="Leave empty if there’s no set time. Any time works, even between flights." />
+            {open.length > 1 ? <Select label="Course" value={layoutId} onChange={setLayoutId} options={open.map((l) => ({ value: l.id, label: l.name }))} /> : null}
+          </div>
+        </>
+      ) : null}
       <Seg value={f.channel} onChange={(v) => setF({ ...f, channel: v })} options={[{ value: 'phone', label: 'Phone' }, { value: 'viber', label: 'Viber' }, { value: 'walkin', label: 'Walk-in' }]} />
       <div className="grid fore-2">
         <Field label="Name" value={f.contactName} onChange={(v) => setF({ ...f, contactName: v })} autoFocus />
@@ -54,13 +78,12 @@ export function NewBooking({ courseId, cell, setup, onClose, onDone }: { courseI
       <div className="fore-bk-group">
         <div className="fore-bk-head">
           <b>Who’s playing</b>
-          <Balls capacity={cell.capacity} used={cell.used} adding={n} />
-          <span className="muted small">{cell.free - n} of {cell.free} {cell.free === 1 ? 'spot' : 'spots'} left</span>
+          {cell ? <><Balls capacity={cell.capacity} used={cell.used} adding={n} /><span className="muted small">{cell.free - n} of {cell.free} {cell.free === 1 ? 'spot' : 'spots'} left</span></> : <span className="muted small">Up to 5 players</span>}
         </div>
         {types.map((t) => (
           <div key={t.id} className="fore-bk-line">
             <span><b>{t.name}</b>{t.days.length || t.earliest !== null ? <small>{[t.days.length ? `${t.days.map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')} only` : '', t.earliest !== null ? `from ${formatTime(t.earliest)}` : ''].filter(Boolean).join(', ')}</small> : null}</span>
-            <Stepper value={counts[t.id] ?? 0} onChange={(v) => setCount(t.id, v)} min={0} max={(counts[t.id] ?? 0) + cell.free - n} />
+            <Stepper value={counts[t.id] ?? 0} onChange={(v) => setCount(t.id, v)} min={0} max={(counts[t.id] ?? 0) + room - n} />
           </div>
         ))}
         {offered.length > 1 ? <div className="fore-bk-line"><span><b>Holes</b></span><Seg value={String(holes)} onChange={(v) => setHoles(v === '9' ? 9 : 18)} options={offered.map((h) => ({ value: String(h), label: `${h} holes` }))} /></div> : null}
@@ -92,7 +115,8 @@ export function NewBooking({ courseId, cell, setup, onClose, onDone }: { courseI
         </div>
       ) : null}
 
-      <Field label="Note" value={f.notes} onChange={(v) => setF({ ...f, notes: v })} placeholder="e.g. celebrating a birthday, needs club rental" />
+      {cell && n > 0 && n < least ? <p className="fore-note">The course asks for at least {least} players per booking on this day. Golfers in the app can’t book fewer; you still can.</p> : null}
+      <Field label="Note" value={f.notes} onChange={(v) => setF({ ...f, notes: v })} placeholder={cell ? 'e.g. celebrating a birthday, needs club rental' : 'e.g. guest of the board, member’s family'} />
       {n ? <Price lines={q.lines} total={q.total} problems={q.problems} /> : null}
       {msg ? <p className="fore-error">{msg}</p> : null}
     </Sheet>
@@ -140,7 +164,7 @@ export function BookingPanel({ courseId, b, setup, readOnly, onClose, onDone }: 
   const unpaid = b.payStatus === 'unpaid' && b.status !== 'cancelled' && b.status !== 'expired';
   const layoutName = setup.layouts.length > 1 ? setup.layouts.find((l) => l.id === b.layoutId)?.name : null;
   return (
-    <Sheet open title={b.contactName} eyebrow={`${formatDay(b.day)}, ${formatTime(b.time)}${layoutName ? `, ${layoutName}` : ''}${b.startTee !== '1' ? `, tee ${b.startTee}` : ''}`} onClose={onClose} width={600}>
+    <Sheet open title={b.contactName} eyebrow={`${formatDay(b.day)}, ${b.time < 0 ? 'no set time' : formatTime(b.time)}${b.special ? ', special booking' : ''}${layoutName ? `, ${layoutName}` : ''}${b.startTee !== '1' ? `, tee ${b.startTee}` : ''}`} onClose={onClose} width={600}>
       <dl className="fore-facts">
         <div><dt>Status</dt><dd><span className={`fore-status s-${b.status}`}>{STATUS_WORDS[b.status]}</span></dd></div>
         <div><dt>Players</dt><dd>{b.players}, {b.holes} holes</dd></div>
@@ -164,7 +188,7 @@ export function BookingPanel({ courseId, b, setup, readOnly, onClose, onDone }: 
             {b.status === 'confirmed' ? <Btn onClick={() => void act('no-show')}>Mark no-show</Btn> : null}
           </div>
           <div className="row wrap">
-            {active ? <Btn kind="ghost" onClick={() => setMode('move')}>Move to another time</Btn> : null}
+            {active ? <Btn kind="ghost" onClick={() => setMode('move')}>{b.special ? 'Put on a tee time' : 'Move to another time'}</Btn> : null}
             <Btn kind="ghost" onClick={() => setMode('edit')}>Edit golfer details</Btn>
             {active ? <Btn kind="ghost" onClick={() => setMode('cancel')}>Cancel booking…</Btn> : null}
           </div>

@@ -3,7 +3,7 @@ import { AuthError, ensureAccount, Forbidden, NotFound, syncAdminEmails, UserErr
 import { overview } from './overview';
 import { servePortal } from './portal';
 import { changeRole, claimInvites, inviteStaff, listStaff, removeStaff } from './staff';
-import { addBlock, changeStatus, createBooking, daySummary, editBooking, getBooking, moveBooking, recordPayment, removeBlock, staffSheet } from './bookings';
+import { addBlock, changeStatus, createBooking, createSpecial, daySummary, editBooking, getBooking, moveBooking, recordPayment, removeBlock, staffSheet } from './bookings';
 import {
   activity, adminCourses, CAN, courseAtAddress, createPartner, getCourse, loadSetup, me, readiness, reviewCourse, roleAt, saveFees, saveOptions, saveRates, saveRules, saveSheet, submitCourse, updateCourse,
 } from './courses';
@@ -101,6 +101,7 @@ export function buildApp(o: AppOptions): FastifyInstance {
   app.get<P>('/api/v1/courses/:id/days', async (req) => daySummary(db, await signedIn(req), req.params.id, req.query, now()));
   app.get<P>('/api/v1/courses/:id/sheet', async (req) => staffSheet(db, await signedIn(req), req.params.id, req.query, now()));
   app.post<P>('/api/v1/courses/:id/bookings', async (req) => createBooking(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
+  app.post<P>('/api/v1/courses/:id/specials', async (req) => createSpecial(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
   app.post<P>('/api/v1/courses/:id/holds', async (req) => createBooking(db, await signedIn(req), req.params.id, { ...req.body, hold: true }, now()));
   app.get<P>('/api/v1/courses/:id/bookings/:bid', async (req) => getBooking(db, await signedIn(req), req.params.id, req.params.bid));
   app.patch<P>('/api/v1/courses/:id/bookings/:bid', async (req) => editBooking(db, await signedIn(req), req.params.id, req.params.bid, req.body ?? {}, now()));

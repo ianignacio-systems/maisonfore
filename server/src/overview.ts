@@ -34,8 +34,8 @@ export async function overview(db: Db, c: Caller, courseId: string, now = Date.n
   };
 
   // The next flights from now
-  const next = live.filter((b) => b.status !== 'played' && b.time >= nowMin - 10).sort((a, b) => a.time - b.time).slice(0, 6)
-    .map((b) => ({ id: b.id, time: b.time, layoutId: b.layoutId, startTee: b.startTee, name: b.contactName, players: b.players, status: b.status, paid: b.payStatus !== 'unpaid' }));
+  const next = live.filter((b) => b.status !== 'played' && (b.special || b.time >= nowMin - 10)).sort((a, b) => a.time - b.time).slice(0, 6)
+    .map((b) => ({ id: b.id, time: b.time, special: b.special === true, layoutId: b.layoutId, startTee: b.startTee, name: b.contactName, players: b.players, status: b.status, paid: b.payStatus !== 'unpaid' }));
 
   // Needs attention
   const attention: { kind: string; text: string; day: string }[] = [];
@@ -60,7 +60,7 @@ export async function overview(db: Db, c: Caller, courseId: string, now = Date.n
         if (s.state === 'closed') blocked += s.bookings.length;
       }
     }
-    const loose = dayRows.filter((b) => !onSheet.has(`${b.layoutId}|${b.startTee}|${b.time}`)).length;
+    const loose = dayRows.filter((b) => !b.special && !onSheet.has(`${b.layoutId}|${b.startTee}|${b.time}`)).length;
     if (loose + blocked) attention.push({ kind: 'move', day: d.day, text: `${loose + blocked} ${loose + blocked === 1 ? 'booking' : 'bookings'} on ${d.day === today ? 'today’s' : 'a'} closed or removed tee time. Call to move or cancel.` });
   }
   if (c && (await db.query("select 1 from members where business_id = $1 and account_id = $2 and role = 'owner'", [courseId, c.accountId])).length) {

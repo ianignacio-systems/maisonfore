@@ -1,4 +1,4 @@
-import { priceFor } from './pricing';
+import { dayType, priceFor } from './pricing';
 import { takesSlot } from './status';
 import { addDays, daysBetween, formatDay, formatTime, localParts, zonedEpoch } from './time';
 import type { Audience, Block, Booking, CourseSetup, Day, Layout, Minutes, SheetSettings, Slot } from './types';
@@ -92,7 +92,8 @@ export function buildSheet(setup: CourseSetup, input: SheetInput): Slot[] {
   const beyondPublic = daysBetween(win.lastDay, day) > 0;
   const beyondMember = setup.memberFeatures && setup.rules.memberDaysAhead !== null
     ? daysBetween(addDays(win.today, setup.rules.memberDaysAhead), day) > 0 : beyondPublic;
-  const active = input.bookings.filter((b) => b.layoutId === layout.id && b.day === day && takesSlot(b, now));
+  // Special bookings sit outside the sheet: they never take a slot's spots.
+  const active = input.bookings.filter((b) => !b.special && b.layoutId === layout.id && b.day === day && takesSlot(b, now));
   const out: Slot[] = [];
   for (const time of teeTimes(s)) {
     const past = zonedEpoch(day, time, setup.timeZone) <= now;
@@ -101,17 +102,19 @@ export function buildSheet(setup: CourseSetup, input: SheetInput): Slot[] {
       const used = on.reduce((n, b) => n + b.players, 0);
       const block = blockOn(input.blocks, layout.id, startTee, day, time, now, setup.memberFeatures);
       const capacity = s.maxPlayers;
+      // One group per tee time: once anyone books it, it is full for everyone else.
+      const taken = used >= capacity || (!setup.rules.shareTeeTimes && used > 0);
       let state: Slot['state'];
       if (past) state = 'past';
       else if (block && isClosure(block)) state = 'closed';
-      else if (used >= capacity) state = 'full';
+      else if (taken) state = 'full';
       else if (block && block.kind === 'members') state = audience === 'member' ? (used ? 'partial' : 'open') : 'members';
       else if (block) state = 'held';
       else if (audience === 'public' && beyondPublic) state = 'not_released';
       else if (audience === 'member' && beyondMember) state = 'not_released';
       else state = used ? 'partial' : 'open';
       out.push({
-        layoutId: layout.id, startTee, day, time, capacity, used, free: Math.max(0, capacity - used), state, block,
+        layoutId: layout.id, startTee, day, time, capacity, used, free: taken ? 0 : Math.max(0, capacity - used), state, block,
         bookings: audience === 'staff' ? on : [],
       });
     }
@@ -145,6 +148,8 @@ export function checkBooking(setup: CourseSetup, sheet: Slot[], r: BookingReques
   if (!slot) return `There is no tee time at ${at} on ${formatDay(r.day)}.`;
   if (!Number.isInteger(r.players) || r.players < 1) return 'A booking needs at least 1 player.';
   const maxPlayers = r.audience === 'staff' ? slot.capacity : Math.min(slot.capacity, setup.rules.maxPlayersPerBooking);
+  const least = minPlayers(setup, r.day);
+  if (r.audience !== 'staff' && r.players < least) return `Book at least ${least} players ${dayType(r.day, setup.holidays) === 'weekday' ? 'on weekdays' : 'on weekends and holidays'}.`;
   if (r.players > maxPlayers) return `A booking can have at most ${maxPlayers} players.`;
   if (slot.state === 'past') return `${at} on ${formatDay(r.day)} has already passed.`;
   if (slot.state === 'closed' && slot.block?.kind === 'event') return `${at} is blocked for ${slot.block.reason && slot.block.reason !== 'Event' ? slot.block.reason : 'an event'}.`;
@@ -168,6 +173,11 @@ export function checkBooking(setup: CourseSetup, sheet: Slot[], r: BookingReques
     if (pub && priceFor(setup, pub.id, layout.holes, r.day, r.time) === null) return 'The course has not set its rates for this day yet.';
   }
   return null;
+}
+
+/** The fewest players one booking may have on a day (the course's rule; staff may book fewer). */
+export function minPlayers(setup: CourseSetup, day: Day): number {
+  return dayType(day, setup.holidays) === 'weekday' ? setup.rules.minPlayersWeekday : setup.rules.minPlayersWeekend;
 }
 
 /** A sensible starting setup for a new course, changed in Course setup before going live. */

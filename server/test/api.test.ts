@@ -309,3 +309,41 @@ describe('overview', () => {
     expect((await t.call(STARTER, 'GET', `/courses/${id}/overview`)).status).toBe(403);
   });
 });
+
+describe('special bookings and player rules', () => {
+  const SAT = '2026-11-28';
+  it('lets the owner accept a VIP with no set time, outside the sheet, charged by player type', async () => {
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    const foreign = c.body.setup.playerTypes.find((p: { name: string }) => p.name === 'Foreign').id;
+    const r = await t.call(OWNER, 'POST', `/courses/${id}/specials`, { day: SAT, players: 2, playerTypes: [publicType, foreign], contactName: 'Gov. Santos', notes: 'Guest of the board' });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ special: true, time: -1, status: 'confirmed', players: 2 });
+    expect(r.body.quote.map((l: { label: string }) => l.label)).toEqual(expect.arrayContaining(['Green fee, Local', 'Green fee, Foreign']));
+    expect(r.body.amount).toBeGreaterThan(0);
+    const s = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${SAT}`);
+    expect(s.body.specials.map((b: { contactName: string }) => b.contactName)).toContain('Gov. Santos');
+    expect(s.body.layouts[0].slots.every((x: { bookings: { special?: boolean }[] }) => x.bookings.every((b) => !b.special))).toBe(true);
+  });
+  it('accepts a special booking at a full time or between flights', async () => {
+    const full = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: SAT, time: 410, players: 4, contactName: 'Full flight' });
+    expect(full.body.error ?? 'ok').toBe('ok');
+    const r = await t.call(OWNER, 'POST', `/courses/${id}/specials`, { day: SAT, time: 415, players: 2, contactName: 'Member squeeze' });
+    expect(r.body).toMatchObject({ special: true, time: 415 });
+    const again = await t.call(OWNER, 'POST', `/courses/${id}/specials`, { day: SAT, time: 410, players: 2, contactName: 'Over the top' });
+    expect(again.status).toBe(200);
+  });
+  it('keeps special bookings to owners and managers', async () => {
+    const [acc] = await t.db.query<{ id: string }>('select id from accounts where lower(email) = $1', ['starter@valley.ph']);
+    if (acc) await t.db.query("insert into members (business_id, account_id, email, role, added_at) values ($1, $2, 'starter@valley.ph', 'starter', 0) on conflict (business_id, account_id) do update set role = 'starter'", [id, acc.id]);
+    expect((await t.call('starter@valley.ph', 'POST', `/courses/${id}/specials`, { day: SAT, players: 1, contactName: 'X' })).status).toBe(403);
+  });
+  it('saves the minimum players and the one-group-per-tee-time rule', async () => {
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    const r = await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, minPlayersWeekday: 1, minPlayersWeekend: 2, shareTeeTimes: false });
+    expect(r.body).toMatchObject({ minPlayersWeekday: 1, minPlayersWeekend: 2, shareTeeTimes: false });
+    await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: SAT, time: 420, players: 2, contactName: 'Pair' });
+    const second = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: SAT, time: 420, players: 1, contactName: 'Single' });
+    expect(second.body.error).toMatch(/full/);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, shareTeeTimes: true });
+  });
+});

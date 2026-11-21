@@ -8,7 +8,7 @@ import { day, int, minutes, mobile, oneOf, text } from './check';
 import { CAN, loadSetup, roleAt } from './courses';
 
 export const BOOKING_COLS = `id, ref, layout_id, start_tee, day, time_min, players, status, channel, hold_expires_at, golfer_account, contact_name, mobile, email, notes,
-  amount, pay_status, paid_amount, paid_method, paid_ref, cancel_reason, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app`;
+  amount, pay_status, paid_amount, paid_method, paid_ref, cancel_reason, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, special`;
 
 export interface BookingRow extends Booking {
   mobile: string; email: string; notes: string; amount: number; payStatus: 'unpaid' | 'paid_course' | 'paid_online';
@@ -18,7 +18,7 @@ export interface BookingRow extends Booking {
 
 export function bookingOf(r: Record<string, unknown>): BookingRow {
   return {
-    id: r.id as string, ref: r.ref as string, layoutId: r.layout_id as string, startTee: r.start_tee as string, day: r.day as string, time: r.time_min as number,
+    id: r.id as string, ref: r.ref as string, layoutId: r.layout_id as string, startTee: r.start_tee as string, day: r.day as string, time: (r.time_min as number | null) ?? -1, special: r.special === true,
     players: r.players as number, status: r.status as BookingStatus, channel: r.channel as Channel, holdExpiresAt: (r.hold_expires_at as number) ?? null,
     golferId: (r.golfer_account as string) ?? null, contactName: r.contact_name as string, mobile: r.mobile as string, email: r.email as string,
     notes: r.notes as string, amount: r.amount as number, payStatus: r.pay_status as BookingRow['payStatus'], paidAmount: r.paid_amount as number,
@@ -77,7 +77,9 @@ export async function staffSheet(db: Db, c: Caller, courseId: string, q: { day?:
   return {
     unchanged: false as const, seq, day: d, now, timeZone: setup.timeZone, layouts, blocks,
     // Bookings not on any slot any more (their layout was switched off or its tee times changed): staff must move them.
-    loose: bookings.filter((b) => takesSlot(b, now) && !layouts.some((l) => l.slots.some((s) => s.layoutId === b.layoutId && s.startTee === b.startTee && s.time === b.time))),
+    // Special bookings (VIPs, members, favours) accepted outside the sheet, in time order, those with no set time first.
+    specials: bookings.filter((b) => b.special && b.status !== 'cancelled' && b.status !== 'expired').sort((a, b) => a.time - b.time),
+    loose: bookings.filter((b) => !b.special && takesSlot(b, now) && !layouts.some((l) => l.slots.some((s) => s.layoutId === b.layoutId && s.startTee === b.startTee && s.time === b.time))),
   };
 }
 
@@ -237,7 +239,7 @@ export async function moveBooking(db: Db, c: Caller, courseId: string, id: strin
     const b = await lockBooking(q, courseId, id);
     if (b.status !== 'confirmed' && !(b.status === 'held' && takesSlot(b, now))) throw new UserError('Only a confirmed or held booking can be moved.');
     const w = wanted({ ...input, players: input.players ?? b.players });
-    const keys = [[b.layoutId, b.startTee, b.day, b.time], [w.layoutId, w.startTee, w.day, w.time]] as const;
+    const keys = (b.special ? [[w.layoutId, w.startTee, w.day, w.time]] : [[b.layoutId, b.startTee, b.day, b.time], [w.layoutId, w.startTee, w.day, w.time]]) as [string, string, string, number][];
     for (const k of [...keys].sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y)))) await lockSlot(q, courseId, k[0], k[1], k[2], k[3]);
     await checkSlot(q, setup, courseId, w, now, id);
     const had = (await q.query<{ player_type_id: string }>('select player_type_id from booking_players where business_id = $1 and booking_id = $2 order by n', [courseId, id])).map((r) => r.player_type_id);
@@ -246,7 +248,7 @@ export async function moveBooking(db: Db, c: Caller, courseId: string, id: strin
     const each = greenFees(setup, w, price, pick.types);
     await q.query(
       `update bookings set layout_id = $3, start_tee = $4, day = $5, time_min = $6, players = $7, amount = $8, updated_at = $9,
-         holes = $10, carts = $11, caddies = $12, gallery = $13, extras = $14, quote = $15, pay_in_app = $16 where business_id = $1 and id = $2`,
+         holes = $10, carts = $11, caddies = $12, gallery = $13, extras = $14, quote = $15, pay_in_app = $16, special = false where business_id = $1 and id = $2`,
       [courseId, id, w.layoutId, w.startTee, w.day, w.time, w.players, price.total, now,
         price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines), price.payInApp]);
     await q.query('delete from booking_players where business_id = $1 and booking_id = $2 and n > $3', [courseId, id, w.players]);
@@ -372,4 +374,47 @@ export async function daySummary(db: Db, c: Caller, courseId: string, input: { f
     out.push({ day: d, used, capacity, bookings: count, closed: slots > 0 && closed === slots });
   }
   return out;
+}
+
+/**
+ * A special booking (owners and managers): a VIP, a member or a favour, accepted without choosing a slot or
+ * blocking one. It takes no slot's spots, is never refused for a full or held time, and may have no set time
+ * or a time between flights. It is charged like any booking, by each player's type.
+ */
+export async function createSpecial(db: Db, c: Caller, courseId: string, input: Record<string, unknown>, now = Date.now()): Promise<BookingRow> {
+  await roleAt(db, c, courseId, CAN.setup);
+  const setup = await loadSetup(db, courseId);
+  const d = day(input.day, 'the day');
+  const time = input.time === null || input.time === undefined || input.time === '' ? null : minutes(input.time, 'the time');
+  const open = setup.layouts.filter((l) => l.active);
+  const layoutId = input.layoutId ? text(input.layoutId, 'the course', { max: 40 }) : open[0]?.id ?? '';
+  const layout = open.find((l) => l.id === layoutId);
+  if (!layout) throw new UserError('Pick a course that is open for booking.');
+  const startTee = text(input.startTee ?? layout.startTees[0], 'the starting tee', { max: 4 });
+  if (!layout.startTees.includes(startTee)) throw new UserError(`${layout.name} starts flights from tee ${layout.startTees.join(' or ')}.`);
+  const players = int(input.players, 'the number of players', 1, 5);
+  const channel = oneOf(input.channel ?? 'staff', 'how the booking came in', ['phone', 'viber', 'walkin', 'staff'] as const);
+  const contactName = text(input.contactName, 'the name for the booking', { required: true, max: 80 });
+  const contact = { mobile: mobile(input.mobile), email: text(input.email, 'the email', { max: 120 }), notes: text(input.notes, 'the note', { max: 500 }) };
+  const pick = pickOf(setup, input, players);
+  const w: Wanted = { layoutId, startTee, day: d, time: time ?? 0, players };
+  const price = priceOf(setup, w, pick);
+  const each = greenFees(setup, w, price, pick.types);
+  return db.tx(async (q) => {
+    const id = newId();
+    const ref = await insertRef(q, courseId);
+    await q.query(
+      `insert into bookings (business_id, id, ref, layout_id, start_tee, day, time_min, players, status, channel, contact_name, mobile, email, notes,
+        amount, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, special)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', $9, $10, $11, $12, $13, $14, $15, $16, $16, $17, $18, $19, $20, $21, $22, $23, true)`,
+      [courseId, id, ref, layoutId, startTee, d, time, players, channel, contactName, contact.mobile, contact.email, contact.notes, price.total, c.email, now,
+        price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines), price.payInApp]);
+    for (let n = 1; n <= players; n++) {
+      await q.query('insert into booking_players (business_id, booking_id, n, name, player_type_id, rate) values ($1, $2, $3, $4, $5, $6)',
+        [courseId, id, n, n === 1 ? contactName : '', pick.types[n - 1], each[n - 1]]);
+    }
+    await audit(q, courseId, c.email, 'booking.special', `${ref} · ${contactName}`,
+      `${formatDay(d)}${time === null ? ', no set time' : ` ${formatTime(time)}`}, ${players} players`, null, now);
+    return getBookingIn(q, courseId, id);
+  });
 }

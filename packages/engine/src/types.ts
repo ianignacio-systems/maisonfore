@@ -88,6 +88,12 @@ export interface BookingRules {
   noShowLimit: number;
   /** MaisonClub only (switched off for partner courses): how many days ahead members can book. */
   memberDaysAhead: number | null;
+  /** Fewest players in one app booking, Monday to Friday (1 = a solo golfer can book). */
+  minPlayersWeekday: number;
+  /** Fewest players in one app booking on weekends and holidays. */
+  minPlayersWeekend: number;
+  /** Different groups can share a tee time until it is full. false = one group per tee time. */
+  shareTeeTimes: boolean;
 }
 
 export type BlockKind = 'walkin' | 'regulars' | 'event' | 'maintenance' | 'weather' | 'members';
@@ -126,6 +132,11 @@ export interface Booking {
   /** The golfer's Maison account, for app bookings. */
   golferId: string | null;
   contactName: string;
+  /**
+   * A special booking (a VIP, a member, a favour) accepted by the owner or a manager outside the sheet:
+   * it doesn't take any slot's spots and may have no set time (time = -1).
+   */
+  special?: boolean;
 }
 
 export type FeeKind = 'cart' | 'caddie' | 'gallery' | 'other';
@@ -228,4 +239,7 @@ export const DEFAULT_RULES: BookingRules = {
   twilightFrom: null,
   noShowLimit: 2,
   memberDaysAhead: null,
+  minPlayersWeekday: 1,
+  minPlayersWeekend: 1,
+  shareTeeTimes: true,
 };
