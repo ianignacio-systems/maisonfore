@@ -67,9 +67,9 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
       {cell?.block ? <p className="fore-note held">This time is held for {cell.block.reason.toLowerCase()}. You can still book it here.</p> : null}
       {!cell ? (
         <>
-          <p className="fore-kind-note">For a VIP, a member or a special case. It doesn’t take any tee slot’s spots, so you can accept it even when the sheet is full or held. It’s charged like any booking, by each player’s type.</p>
+          <p className="fore-kind-note">For a VIP, a member or a special case. It doesn’t take any tee time’s spots, so you can accept it even when the sheet is full or held. It’s charged like any booking, by each player’s type.</p>
           <div className={`grid ${open.length > 1 ? 'fore-2' : ''}`}>
-            <Field label="Tee slot (optional)" type="time" value={timeText} onChange={setTimeText} hint="Leave empty if there’s no set time. Any time works, even between flights." />
+            <Field label="Tee time (optional)" type="time" value={timeText} onChange={setTimeText} hint="Leave empty if there’s no set time. Any time works, even between flights." />
             {open.length > 1 ? <Select label="Course" value={layoutId} onChange={setLayoutId} options={open.map((l) => ({ value: l.id, label: l.name }))} /> : null}
           </div>
         </>
@@ -209,7 +209,7 @@ export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, 
         <div><dt>Reference</dt><dd className="fore-ref">{b.ref}</dd></div>
         <div className={pencil ? 'wide' : ''}><dt>Payment</dt><dd>{b.payStatus === 'paid_course' ? `${peso(b.paidAmount)} paid at the counter${b.paidMethod ? `, ${METHOD[b.paidMethod] ?? b.paidMethod}` : ''}` : b.payStatus === 'paid_online' ? 'Paid in the app'
           : pencil ? <span className="fore-pencil-note">Not paid in time: now a pencil booking. Others can book this time. Record the payment to put it back, if there’s still room.</span>
-            : b.payDueBy ? `Not paid yet. Keeps its tee slot until ${new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Not paid yet'}</dd></div>
+            : b.payDueBy ? `Not paid yet. Keeps its tee time until ${new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Not paid yet'}</dd></div>
         {b.mobile ? <div><dt>Mobile</dt><dd><a href={`tel:${b.mobile}`}>{b.mobile}</a></dd></div> : null}
         {b.email ? <div><dt>Email</dt><dd><a href={`mailto:${b.email}`}>{b.email}</a></dd></div> : null}
         {b.notes ? <div className="wide"><dt>Note</dt><dd>{b.notes}</dd></div> : null}
@@ -232,7 +232,7 @@ export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, 
           </div>
           {payFirst ? <p className="muted small">Check-in opens once the booking is paid.</p> : null}
           <div className="row wrap">
-            {active ? <Btn kind="ghost" onClick={() => setMode('move')}>{b.special ? 'Put on a tee slot' : 'Move to another time'}</Btn> : null}
+            {active ? <Btn kind="ghost" onClick={() => setMode('move')}>{b.special ? 'Put on a tee time' : 'Move to another time'}</Btn> : null}
             <Btn kind="ghost" onClick={() => setMode('edit')}>Edit golfer details</Btn>
             {active ? <Btn kind="ghost" onClick={() => setMode('cancel')}>Cancel booking…</Btn> : null}
           </div>
@@ -327,7 +327,7 @@ function RecordPayment({ courseId, b, justMade, onBack, onDone }: { courseId: st
         {method !== 'cash' ? <Field label="Reference number" value={ref} onChange={setRef} placeholder="From the receipt or app" /> : null}
       </div>
       {msg ? <p className="fore-error">{msg}</p> : null}
-      {justMade && b.payDueBy ? <p className="muted small">Not paying now? The booking keeps its tee slot until {new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. After that it becomes a pencil booking and others can book the time.</p> : null}
+      {justMade && b.payDueBy ? <p className="muted small">Not paying now? The booking keeps its tee time until {new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. After that it becomes a pencil booking and others can book the time.</p> : null}
       <div className="row"><Btn kind="primary" disabled={busy} onClick={() => void go()}>Record {method === 'cash' ? 'cash' : METHOD[method]} payment</Btn><Btn kind="ghost" onClick={onBack}>{justMade ? 'Pay later' : 'Back'}</Btn></div>
     </div>
   );
@@ -381,7 +381,7 @@ export function HoldClose({ courseId, day, tees, layoutId, firstTee, lastTee, on
     } catch (e) { setMsg((e as Error).message); }
   };
   return (
-    <Sheet open title={event ? 'Block tee slots' : closure ? 'Close tee slots' : 'Hold tee slots'} eyebrow={formatDay(day)} onClose={onClose}
+    <Sheet open title={event ? 'Block tee time' : closure ? 'Close tee time' : 'Hold tee time'} eyebrow={formatDay(day)} onClose={onClose}
       footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" onClick={() => void go()}>{event ? 'Block these times' : closure ? 'Close these times' : 'Hold these times'}</Btn></>}>
       <Select label="What for" value={f.kind} onChange={(v) => setF({ ...f, kind: v })} options={[
         { value: 'walkin', label: 'Pencil hold for walk-ins' }, { value: 'regulars', label: 'Pencil hold for regulars or a group' },

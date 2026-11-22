@@ -6,7 +6,7 @@ import { clock, CourseArt, Days, go } from '../ui';
 const today = () => localParts(Date.now(), 'Asia/Manila').day;
 const greet = () => { const h = Number(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Manila' })); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
 
-/** Find a course: pick a day, search by course or place, see prices and the next open tee slots (no counts: golfers just need to know when they can play). */
+/** Find a course: pick a day, search by course or place, see prices and the next open tee times (no counts: golfers just need to know when they can play). */
 export function Find({ me }: { me: Me }) {
   const [day, setDay] = useState(() => { try { return sessionStorage.getItem('pl.day') || today(); } catch { return today(); } });
   const [q, setQ] = useState('');

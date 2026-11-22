@@ -7,7 +7,7 @@ function Frame({ children }: { children: ReactNode }) {
     <div className="pl-auth">
       <div className="pl-auth-art">
         <CourseArt seed="maisonfore-welcome" />
-        <div className="pl-auth-brand"><b>Maison<span>Fore</span></b><p>Book tee slots at partner courses across the Philippines.</p></div>
+        <div className="pl-auth-brand"><b>Maison<span>Fore</span></b><p>Book your tee time at partner courses across the Philippines.</p></div>
       </div>
       <div className="pl-auth-form">{children}</div>
     </div>

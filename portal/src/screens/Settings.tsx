@@ -15,7 +15,7 @@ const DAY_LETTERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 type Pane = 'course' | 'teetimes' | 'players' | 'fees' | 'rules' | 'holidays';
 const PANES: { id: Pane; label: string; sub: string }[] = [
-  { id: 'teetimes', label: 'Courses and tee slots', sub: 'Each course (9 or 18 holes), its tee slots and interval' },
+  { id: 'teetimes', label: 'Courses and tee time', sub: 'Each course (9 or 18 holes), its tee time settings and interval' },
   { id: 'players', label: 'Players and green fees', sub: 'Local, foreign, senior… 9 and 18 holes' },
   { id: 'fees', label: 'Carts, caddies and fees', sub: 'Golf cart, caddie, insurance, rentals and more' },
   { id: 'rules', label: 'Booking rules', sub: 'How far ahead, cancelling, holds' },
@@ -113,7 +113,7 @@ function CoursePane({ data, reload }: { data: CourseData; reload: () => Promise<
   );
 }
 
-// ---------------------------------------------------------------- tee slots
+// ---------------------------------------------------------------- tee times
 
 interface LayoutForm { id: string; name: string; holes: Layout['holes']; twoTee: boolean; active: boolean; first: string; last: string; interval: string; players: string; isNew: boolean }
 
@@ -141,8 +141,8 @@ function TeeTimesPane({ data, reload }: { data: CourseData; reload: () => Promis
 
   return (
     <section>
-      <PaneHead title="Courses and tee slots" sub="Each course at your club has its own tee sheet. Changes start from the date you choose; bookings already made keep their times." />
-      {upcoming.length ? <p className="fore-note">Tee-slot changes already set to start later: {upcoming.map((u) => `${s.layouts.find((l) => l.id === u.layoutId)?.name ?? 'Course'} from ${u.effectiveFrom}`).join('; ')}.</p> : null}
+      <PaneHead title="Courses and tee time" sub="Each course at your club has its own tee sheet. Changes start from the date you choose; bookings already made keep their times." />
+      {upcoming.length ? <p className="fore-note">Tee time changes already set to start later: {upcoming.map((u) => `${s.layouts.find((l) => l.id === u.layoutId)?.name ?? 'Course'} from ${u.effectiveFrom}`).join('; ')}.</p> : null}
       {rows.map((r, i) => (
         <div key={r.id} className={`fore-panel fore-layout${r.active ? '' : ' off'}`}>
           <div className="fore-layout-head">
@@ -154,23 +154,23 @@ function TeeTimesPane({ data, reload }: { data: CourseData; reload: () => Promis
             <div><span className="fore-lbl">Flights start from</span><Seg value={r.twoTee ? '2' : '1'} onChange={(v) => upd(i, { twoTee: v === '2' })} options={[{ value: '1', label: '1st tee' }, { value: '2', label: '1st and 10th tees' }]} /></div>
           </div>
           <div className="grid fore-4">
-            <Field label="First tee slot" type="time" value={r.first} onChange={(v) => upd(i, { first: v })} />
-            <Field label="Last tee slot" type="time" value={r.last} onChange={(v) => upd(i, { last: v })} />
+            <Field label="First tee time" type="time" value={r.first} onChange={(v) => upd(i, { first: v })} />
+            <Field label="Last tee time" type="time" value={r.last} onChange={(v) => upd(i, { last: v })} />
             <Select label="Minutes between flights" value={r.interval} onChange={(v) => upd(i, { interval: v })} options={INTERVALS} />
             <Select label="Players per flight" value={r.players} onChange={(v) => upd(i, { players: v })} options={['1', '2', '3', '4', '5'].map((n) => ({ value: n, label: `${n} ${n === '1' ? 'player' : 'players'}` }))} />
           </div>
-          <p className="fore-preview">{count(r)} tee slots a day, {formatTime(toMin(r.first))} to {formatTime(toMin(r.last))}{r.twoTee ? ', from both tees' : ''}.</p>
+          <p className="fore-preview">{count(r)} flights a day, {formatTime(toMin(r.first))} to {formatTime(toMin(r.last))}{r.twoTee ? ', from both tees' : ''}.</p>
         </div>
       ))}
       <div className="fore-panel fore-inline">
         <Btn onClick={() => setRows([...rows, { id: key(), name: '', holes: 18, twoTee: false, active: true, first: '06:00', last: '14:00', interval: '8', players: '4', isNew: true }])}>Add another course</Btn>
-        <span className="muted small">For clubs with more than one course. Each gets its own tee sheet, holes and tee slots.</span>
+        <span className="muted small">For clubs with more than one course. Each gets its own tee sheet, holes and tee time settings.</span>
       </div>
       <div className="fore-panel">
         <Check label="Golfers can book 9 holes on 18-hole courses" hint="Set 9-hole green fees under Players and green fees." value={nine} onChange={setNine} />
-        <Field label="Changes start from" type="date" value={from} onChange={setFrom} hint="Days before this keep their current tee slots." />
+        <Field label="Changes start from" type="date" value={from} onChange={setFrom} hint="Days before this keep their current tee time settings." />
       </div>
-      <SaveBar label="Save tee slots" busy={busy} msg={msg} onSave={save} />
+      <SaveBar label="Save tee time" busy={busy} msg={msg} onSave={save} />
     </section>
   );
 }
@@ -249,7 +249,7 @@ function PlayersPane({ data, reload }: { data: CourseData; reload: () => Promise
                   }}>{d.slice(0, 2)}</button>;
                 })}
               </div>
-              <label className="fore-cell"><span className="cap">Tee slots from</span><input type="time" aria-label={`Earliest tee slot for ${t.name}`} value={t.earliestText} onChange={(e) => upd(i, { earliestText: e.target.value })} /></label>
+              <label className="fore-cell"><span className="cap">Tee time from</span><input type="time" aria-label={`Earliest tee time for ${t.name}`} value={t.earliestText} onChange={(e) => upd(i, { earliestText: e.target.value })} /></label>
               <label className="fore-cell tick"><input type="checkbox" aria-label={`${t.name} can book in the app`} checked={t.public} onChange={(e) => upd(i, { public: e.target.checked })} /><span className="cap">In the app</span></label>
               <label className="fore-cell tick"><input type="checkbox" aria-label={`${t.name} is on`} checked={t.active} onChange={(e) => upd(i, { active: e.target.checked })} /><span className="cap">On</span></label>
             </div>
@@ -441,17 +441,17 @@ function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<v
       <div className="fore-panel flush">
         {item('Book ahead', 'How many days ahead golfers can book.', <Field label="Days" inputMode="numeric" value={String(f.publicDaysAhead)} onChange={num('publicDaysAhead')} sm />)}
         {item('New day opens', 'The time each new day opens for booking.', <Field label="Time" type="time" value={f.releaseTimeText} onChange={(v) => setF({ ...f, releaseTimeText: v })} sm />)}
-        {item('Cancel or move', 'Golfers can cancel or move up to this many hours before their tee slot.', <Field label="Hours before" inputMode="numeric" value={String(f.cancelCutoffHours)} onChange={num('cancelCutoffHours')} sm />)}
+        {item('Cancel or move', 'Golfers can cancel or move up to this many hours before their tee time.', <Field label="Hours before" inputMode="numeric" value={String(f.cancelCutoffHours)} onChange={num('cancelCutoffHours')} sm />)}
         {item('Players per booking', 'Most players in one app booking.', <Field label="Players" inputMode="numeric" value={String(f.maxPlayersPerBooking)} onChange={num('maxPlayersPerBooking')} sm />)}
         {item('Open bookings', 'Most upcoming bookings one golfer can have.', <Field label="Bookings" inputMode="numeric" value={String(f.maxOpenBookingsPerGolfer)} onChange={num('maxOpenBookingsPerGolfer')} sm />)}
-        {item('Time to pay', 'Minutes a tee slot is held while the golfer pays.', <Field label="Minutes" inputMode="numeric" value={String(f.holdMinutes)} onChange={num('holdMinutes')} sm />)}
+        {item('Time to pay', 'Minutes a tee time is held while the golfer pays.', <Field label="Minutes" inputMode="numeric" value={String(f.holdMinutes)} onChange={num('holdMinutes')} sm />)}
         {item('No-shows', 'No-shows in 90 days before a golfer can’t book in the app. 0 = never.', <Field label="No-shows" inputMode="numeric" value={String(f.noShowLimit)} onChange={num('noShowLimit')} sm />)}
         {item('Fewest players, Monday to Friday', 'The smallest group golfers can book in the app. 1 = a solo golfer can book.', <Select aria-label="Fewest players on weekdays" value={String(f.minPlayersWeekday ?? 1)} onChange={(v) => setF({ ...f, minPlayersWeekday: Number(v) })} options={FEWEST} />)}
         {item('Fewest players, weekends and holidays', 'Many courses ask for bigger groups on busy days.', <Select aria-label="Fewest players on weekends" value={String(f.minPlayersWeekend ?? 1)} onChange={(v) => setF({ ...f, minPlayersWeekend: Number(v) })} options={FEWEST} />)}
-        {item('Time to pay, phone, Viber and walk-in bookings', 'How long an unpaid booking keeps its tee slot after it’s made. After that it becomes a pencil booking: it stays on the sheet, but others can book the time.',
+        {item('Time to pay, phone, Viber and walk-in bookings', 'How long an unpaid booking keeps its tee time after it’s made. After that it becomes a pencil booking: it stays on the sheet, but others can book the time.',
           <Select aria-label="Time to pay" value={f.paymentGraceHours === null || f.paymentGraceHours === undefined ? '' : String(f.paymentGraceHours)} onChange={(v) => setF({ ...f, paymentGraceHours: v === '' ? null : Number(v) })} options={GRACE} />)}
         {item('Player names', 'Required: staff and golfers give every player’s name when booking. Optional: only the name for the booking.', <Seg value={f.playerNames === 'required' ? 'required' : 'optional'} onChange={(v) => setF({ ...f, playerNames: v === 'required' ? 'required' : 'optional' })} options={[{ value: 'optional', label: 'Optional' }, { value: 'required', label: 'Required' }]} />)}
-        {item('Groups share a tee slot', 'On: different groups can book the same tee slot until it’s full. Off: one group per tee slot.', <Seg value={f.shareTeeTimes === false ? 'no' : 'yes'} onChange={(v) => setF({ ...f, shareTeeTimes: v === 'yes' })} options={[{ value: 'yes', label: 'Share' }, { value: 'no', label: 'One group' }]} />)}
+        {item('Groups share a tee time', 'On: different groups can book the same tee time until it’s full. Off: one group per tee time.', <Seg value={f.shareTeeTimes === false ? 'no' : 'yes'} onChange={(v) => setF({ ...f, shareTeeTimes: v === 'yes' })} options={[{ value: 'yes', label: 'Share' }, { value: 'no', label: 'One group' }]} />)}
       </div>
       <SaveBar label="Save booking rules" busy={busy} msg={msg} onSave={() => void run([[`/courses/${data.course.id}/rules`, { ...f, releaseTime: toMin(f.releaseTimeText) }]])} />
     </section>

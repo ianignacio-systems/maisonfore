@@ -92,7 +92,7 @@ function GettingStarted({ data, reload, go }: { data: CourseData; reload: () => 
       </div>
       <div className="card">
         <h3>Then</h3>
-        <p className="muted">Your staff can already use the tee sheet for phone and walk-in bookings. Once Maison approves your course, golfers can find it and book its open tee slots in the MaisonFore app.</p>
+        <p className="muted">Your staff can already use the tee sheet for phone and walk-in bookings. Once Maison approves your course, golfers can find it and book a tee time in the MaisonFore app.</p>
         {c.status === 'draft' || c.status === 'declined' ? (
           <div className="row wrap">
             <Btn kind="primary" disabled={!ready || busy || data.role !== 'owner'} onClick={() => void submit()}>{busy ? 'Sending…' : 'Send to Maison for review'}</Btn>
@@ -129,7 +129,7 @@ function Activity({ courseId }: { courseId: string }) {
 const ACTION: Record<string, string> = {
   'course.created': 'Course added', 'course.updated': 'Course details changed', 'course.submitted': 'Sent for review', 'course.approve': 'Approved by Maison',
   'course.send_back': 'Sent back by Maison', 'course.decline': 'Declined by Maison', 'course.pause': 'Paused by Maison',
-  'setup.teetimes': 'Tee slots changed', 'setup.rates': 'Players, green fees or holidays changed', 'setup.rules': 'Booking rules changed', 'setup.fees': 'Fees changed', 'setup.options': 'Course options changed',
+  'setup.teetimes': 'Tee time settings changed', 'setup.rates': 'Players, green fees or holidays changed', 'setup.rules': 'Booking rules changed', 'setup.fees': 'Fees changed', 'setup.options': 'Course options changed',
   'staff.added': 'Staff added', 'staff.invited': 'Staff invited', 'staff.joined': 'Joined the staff', 'staff.role': 'Role changed', 'staff.removed': 'Removed from the staff',
   'booking.created': 'Booking made', 'booking.special': 'Special booking accepted', 'booking.held': 'Slot held', 'booking.confirmed': 'Booking confirmed', 'booking.checked_in': 'Checked in', 'booking.played': 'Played',
   'booking.cancelled': 'Booking cancelled', 'booking.no_show': 'No-show', 'booking.moved': 'Booking moved', 'booking.edited': 'Booking edited', 'booking.paid': 'Paid at the counter',

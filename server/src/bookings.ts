@@ -76,7 +76,7 @@ export async function staffSheet(db: Db, c: Caller, courseId: string, q: { day?:
   }));
   return {
     unchanged: false as const, seq, day: d, now, timeZone: setup.timeZone, layouts, blocks,
-    // Bookings not on any slot any more (their layout was switched off or its tee slots changed): staff must move them.
+    // Bookings not on any slot any more (their layout was switched off or its tee times changed): staff must move them.
     // Special bookings (VIPs, members, favours) accepted outside the sheet, in time order, those with no set time first.
     specials: bookings.filter((b) => b.special && b.status !== 'cancelled' && b.status !== 'expired').sort((a, b) => a.time - b.time),
     loose: bookings.filter((b) => !b.special && takesSlot(b, now) && !layouts.some((l) => l.slots.some((s) => s.layoutId === b.layoutId && s.startTee === b.startTee && s.time === b.time))),
@@ -96,7 +96,7 @@ export function wanted(input: Record<string, unknown>): Wanted {
     layoutId: text(input.layoutId, 'the layout', { required: true, max: 40 }),
     startTee: text(input.startTee ?? '1', 'the starting tee', { required: true, max: 4 }),
     day: day(input.day, 'the day'),
-    time: minutes(input.time, 'the tee slot'),
+    time: minutes(input.time, 'the tee time'),
     players: int(input.players, 'the number of players', 1, 5),
   };
 }
@@ -121,7 +121,7 @@ export function playerNamesOf(setup: CourseSetup, input: Record<string, unknown>
   return names;
 }
 
-/** When an unpaid phone, Viber or walk-in booking stops holding its tee slot; null = no limit. */
+/** When an unpaid phone, Viber or walk-in booking stops holding its tee time; null = no limit. */
 function graceEnd(setup: CourseSetup, channel: string, now: number): number | null {
   const h = setup.rules.paymentGraceHours;
   return h !== null && (channel === 'phone' || channel === 'viber' || channel === 'walkin') ? now + h * 3_600_000 : null;
@@ -239,7 +239,7 @@ export async function changeStatus(db: Db, c: Caller, courseId: string, id: stri
       throw new UserError('This hold ran out and the slot was freed. Make the booking again.');
     }
     if (!canChange(b.status, to)) throw new UserError(`A booking that is ${STATUS_WORDS[b.status].toLowerCase()} can’t be changed to ${STATUS_WORDS[to].toLowerCase()}.`);
-    if (to === 'no_show' && teeMoment(setup, b) > now) throw new UserError('You can mark a no-show once the tee slot has passed.');
+    if (to === 'no_show' && teeMoment(setup, b) > now) throw new UserError('You can mark a no-show once the tee time has passed.');
     if (to === 'checked_in' && isPencil(b, now)) throw new UserError('This is now a pencil booking: its time to pay ran out. Record the payment first.');
     if (to === 'checked_in' && !paidForCheckIn(b)) throw new UserError('This booking isn’t paid yet. Record the payment first, then check the golfers in.');
     if (to === 'cancelled' && !reason) throw new UserError('Add a reason for cancelling.');
@@ -265,7 +265,7 @@ export async function moveBooking(db: Db, c: Caller, courseId: string, id: strin
   return db.tx(async (q) => {
     const b = await lockBooking(q, courseId, id);
     if (b.status !== 'confirmed' && !(b.status === 'held' && takesSlot(b, now))) throw new UserError('Only a confirmed or held booking can be moved.');
-    if (golfer && (b.golferId !== c.accountId || !golferCanChange(setup, b, now))) throw new UserError(`Bookings can be changed in the app up to ${setup.rules.cancelCutoffHours} hours before the tee slot. Call the course.`);
+    if (golfer && (b.golferId !== c.accountId || !golferCanChange(setup, b, now))) throw new UserError(`Bookings can be changed in the app up to ${setup.rules.cancelCutoffHours} hours before the tee time. Call the course.`);
     const w = wanted({ ...input, players: input.players ?? b.players });
     const keys = (b.special ? [[w.layoutId, w.startTee, w.day, w.time]] : [[b.layoutId, b.startTee, b.day, b.time], [w.layoutId, w.startTee, w.day, w.time]]) as [string, string, string, number][];
     for (const k of [...keys].sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y)))) await lockSlot(q, courseId, k[0], k[1], k[2], k[3]);

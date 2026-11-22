@@ -33,7 +33,7 @@ export interface CoursePage {
   setup: CourseSetup;
 }
 export interface OpenSlot { time: number; startTee: string; free: number; capacity: number }
-/** One tee slot as golfers see it: the same time on every starting tee, shown once. */
+/** One tee time as golfers see it: the same time on every starting tee, shown once. */
 export interface TeeTime { time: number; free: number; tees: OpenSlot[] }
 
 /**

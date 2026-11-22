@@ -20,7 +20,7 @@ export function Bookings() {
       <header className="pl-head"><p className="pl-kicker">Your rounds</p><h1>Bookings</h1></header>
       {problem ? <p className="pl-err">{problem}</p> : null}
       {!list ? <p className="pl-muted pl-pad">Loading…</p> : !list.length ? (
-        <div className="pl-empty"><b>No bookings yet</b><p>Find a course and book your first tee slot.</p><Button onClick={() => go('/')}>Find a course</Button></div>
+        <div className="pl-empty"><b>No bookings yet</b><p>Find a course and book your first tee time.</p><Button onClick={() => go('/')}>Find a course</Button></div>
       ) : (
         <>
           {upcoming.length ? <h2 className="pl-section">Coming up</h2> : null}
@@ -82,11 +82,11 @@ function Ticket({ b, onClose, onChanged }: { b: MyBooking; onClose: () => void; 
               <Button kind="line" onClick={() => setMode('move')}>Change time</Button>
               <Button kind="quiet" onClick={() => setMode('cancel')}>Cancel booking</Button>
             </div>
-          ) : <p className="pl-muted small">Changes within {b.cutoffHours} hours of the tee slot go through the course.{b.course.phone ? <> <a href={`tel:${b.course.phone.replace(/\s/g, '')}`}>Call {b.course.phone}</a></> : null}</p>) : null}
+          ) : <p className="pl-muted small">Changes within {b.cutoffHours} hours of the tee time go through the course.{b.course.phone ? <> <a href={`tel:${b.course.phone.replace(/\s/g, '')}`}>Call {b.course.phone}</a></> : null}</p>) : null}
         </>
       ) : mode === 'cancel' ? (
         <div className="pl-confirm">
-          <p>Cancel your tee slot at <b>{clock(b.time)}</b> on <b>{formatDay(b.day)}</b>?</p>
+          <p>Cancel your tee time at <b>{clock(b.time)}</b> on <b>{formatDay(b.day)}</b>?</p>
           <div className="pl-actions"><Button kind="danger" disabled={busy} onClick={() => void cancel()}>Yes, cancel it</Button><Button kind="line" onClick={() => setMode('view')}>Keep it</Button></div>
         </div>
       ) : <MoveTime b={b} onBack={() => setMode('view')} onDone={onChanged} />}

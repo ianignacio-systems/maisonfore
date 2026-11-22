@@ -56,7 +56,7 @@ export const STATUS_WORDS: Record<BookingStatus, string> = {
   held: 'Held', confirmed: 'Confirmed', checked_in: 'Checked in', played: 'Played', cancelled: 'Cancelled', no_show: 'No-show', expired: 'Expired',
 };
 
-/** The tee slot as a moment (epoch ms). */
+/** The tee time as a moment (epoch ms). */
 export function teeMoment(setup: CourseSetup, b: Pick<Booking, 'day' | 'time'>): number {
   return zonedEpoch(b.day, b.time, setup.timeZone);
 }

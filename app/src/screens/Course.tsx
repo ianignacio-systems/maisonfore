@@ -11,7 +11,7 @@ export function myType(setup: CourseSetup, me: Me): PlayerType | undefined {
   return setup.playerTypes.find((t) => want.test(t.name)) ?? setup.playerTypes[0];
 }
 
-/** A course: its details, then its open tee slots by day; tap a time to book it. */
+/** A course: its details, then its open tee times by day; tap a time to book it. */
 export function Course({ slug, me }: { slug: string; me: Me }) {
   const [page, setPage] = useState<CoursePage | null>(null);
   const [day, setDay] = useState(() => new URLSearchParams(location.search).get('day') ?? '');
@@ -58,12 +58,12 @@ export function Course({ slug, me }: { slug: string; me: Me }) {
         {c.description ? <p className="pl-about">{c.description}</p> : null}
         {c.facilities.length ? <ul className="pl-chips">{c.facilities.map((f) => <li key={f}>{f}</li>)}</ul> : null}
 
-        <h2 className="pl-section">Tee slots</h2>
+        <h2 className="pl-section">Tee time</h2>
         <Days from={page.window.today} count={14} value={day} onPick={setDay} lastBookable={page.window.lastDay} />
         {layouts.length > 1 ? <div className="pl-seg">{layouts.map((l, i) => <button key={l.id} className={i === layoutIx ? 'on' : ''} onClick={() => setLayoutIx(i)}>{l.name}</button>)}</div> : null}
-        {!times ? <p className="pl-muted pl-pad">Loading tee slots…</p>
+        {!times ? <p className="pl-muted pl-pad">Finding open times…</p>
           : times.notYet ? <div className="pl-empty"><b>Not open yet</b><p>{times.notYet}</p></div>
-            : !L || !L.slots.length ? <div className="pl-empty"><b>No open tee slots</b><p>Try another day, or call the course.</p></div> : (
+            : !L || !L.slots.length ? <div className="pl-empty"><b>No open tee time</b><p>Try another day, or call the course.</p></div> : (
               <>
                 {mine ? <p className="pl-muted small">Prices are per player for {mine.name}, 18 holes. Carts, caddies and fees are shown before you book.</p> : null}
                 {PERIODS.map(([label, from, to]) => {
@@ -95,7 +95,7 @@ export function Course({ slug, me }: { slug: string; me: Me }) {
   );
 }
 
-/** Booking one tee slot: who's playing, holes, carts and extras, the price, then paying at the course. */
+/** Booking one tee time: who's playing, holes, carts and extras, the price, then paying at the course. */
 function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me: Me; day: string; layoutId: string; slot: TeeTime; onClose: () => void }) {
   const s = page.setup;
   const mine = myType(s, me);
@@ -194,7 +194,7 @@ function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me
         <label className="off"><input type="radio" disabled /><span><b>GCash, Maya or QR Ph</b><small>Coming soon</small></span></label>
       </section>
       <label className="pl-field"><span>Note for the course (optional)</span><input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. need club rental" /></label>
-      <p className="pl-muted small">You can cancel or change the time in the app up to {s.rules.cancelCutoffHours} hours before your tee slot.</p>
+      <p className="pl-muted small">You can cancel or change the time in the app up to {s.rules.cancelCutoffHours} hours before your tee time.</p>
       {msg ? <p className="pl-err" role="status">{msg}</p> : null}
     </Sheet>
   );
