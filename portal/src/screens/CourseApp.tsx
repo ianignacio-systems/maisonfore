@@ -8,9 +8,11 @@ import { Settings } from './Settings';
 import { Staff } from './Staff';
 import { Overview } from './Overview';
 import { TeeSheet } from './TeeSheet';
+import { TeeHouseScreen } from './TeeHouse';
+import { TeeHouseReport } from './TeeHouseReport';
 
-type Tab = 'overview' | 'today' | 'start' | 'setup' | 'staff' | 'activity';
-const ROLE: Record<string, string> = { owner: 'Owner', manager: 'Manager', starter: 'Starter', viewer: 'View only' };
+type Tab = 'overview' | 'today' | 'start' | 'setup' | 'teehouses' | 'thscreen' | 'staff' | 'activity';
+const ROLE: Record<string, string> = { owner: 'Owner', manager: 'Manager', starter: 'Starter', viewer: 'View only', teehouse: 'Tee house' };
 const Icon = ({ d }: { d: string }) => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
 
 /** A course's portal: the tee sheet, getting started, setup and the activity log. */
@@ -25,6 +27,8 @@ export function CourseApp({ courseId, me }: { courseId: string; me: Me }) {
   useEffect(() => { void load(); }, [load]);
   if (problem) return <div className="center"><Empty title="Couldn’t open the course" body={problem} action={<Btn onClick={() => void load()}>Try again</Btn>} /></div>;
   if (!data) return <div className="center muted">Loading…</div>;
+  // Tee house staff: only their tee house screen, made for a phone.
+  if (data.role === 'teehouse') return <TeeHouseScreen courseId={courseId} signOut={() => void signOut().then(() => location.assign('/'))} />;
   const canSetup = data.role === 'owner' || data.role === 'manager';
   const live = data.course.status === 'live';
   const done = data.readiness.filter((r) => r.done).length;
@@ -36,6 +40,7 @@ export function CourseApp({ courseId, me }: { courseId: string; me: Me }) {
     { id: 'today', ico: <Icon d="M7 21V4l10 4-10 4" />, txt: 'Tee sheet', show: true },
     { id: 'start', ico: <Icon d="M5 12l4 4L19 6" />, txt: 'Go live', badge: `${done}/${data.readiness.length}`, show: canSetup && !live },
     { id: 'setup', ico: <Icon d="M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4" />, txt: 'Settings', show: canSetup },
+    { id: 'teehouses', ico: <Icon d="M4 10h16l-1.5 9h-13zM8 10V7a4 4 0 0 1 8 0v3" />, txt: 'Tee houses', show: canSetup && data.setup.rules.payWhen === 'after' },
     { id: 'staff', ico: <Icon d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7M22 21v-1a6 6 0 0 0-4-5.6" />, txt: 'Staff', show: data.role === 'owner' },
     { id: 'activity', ico: <Icon d="M5 6h14M5 12h14M5 18h9" />, txt: 'Activity log', show: canSetup },
   ];
@@ -66,6 +71,8 @@ export function CourseApp({ courseId, me }: { courseId: string; me: Me }) {
         {current === 'start' ? <GettingStarted data={data} reload={load} go={setTab} /> : null}
         {current === 'setup' ? <Settings data={data} reload={load} /> : null}
         {current === 'activity' ? <Activity courseId={courseId} /> : null}
+        {current === 'teehouses' ? <TeeHouseReport courseId={courseId} timeZone={data.setup.timeZone} openDay={openDay} openScreen={() => setTab('thscreen')} /> : null}
+        {current === 'thscreen' ? <div className="page"><button className="fore-link" onClick={() => setTab('teehouses')}>‹ Back to the report</button><TeeHouseScreen courseId={courseId} /></div> : null}
       </main>
     </div>
   );
@@ -127,6 +134,9 @@ function Activity({ courseId }: { courseId: string }) {
 }
 
 const ACTION: Record<string, string> = {
+  'booking.registered': 'Registered on arrival', 'booking.settled': 'Passport settled', 'passport.charged': 'Order on a passport', 'passport.voided': 'Order taken off',
+  'passport.moved': 'Charge moved to another passport', 'setup.teehouses': 'Tee houses changed', 'teehouse.remitted': 'Paid out to a tee house', 'teehouse.unremitted': 'Pay-out undone',
+  'standby.added': 'Added to the standby list', 'standby.removed': 'Taken off the waiting list', 'waitlist.joined': 'Joined the app waitlist', 'waitlist.offered': 'Waitlist offer',
   'course.created': 'Course added', 'course.updated': 'Course details changed', 'course.submitted': 'Sent for review', 'course.approve': 'Approved by Maison',
   'course.send_back': 'Sent back by Maison', 'course.decline': 'Declined by Maison', 'course.pause': 'Paused by Maison',
   'setup.teetimes': 'Tee time settings changed', 'setup.rates': 'Players, green fees or holidays changed', 'setup.rules': 'Booking rules changed', 'setup.fees': 'Fees changed', 'setup.options': 'Course options changed',

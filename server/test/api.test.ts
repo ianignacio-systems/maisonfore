@@ -616,3 +616,77 @@ describe('the app waitlist', () => {
     await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payBeforeMinutes: null });
   });
 });
+
+describe('paying after playing: registration, passports and tee houses', () => {
+  const DAY = '2026-12-05', KIOSK = 'kiosk@valley.ph';
+  let start = 0, houseId = '', iced = '', bookingId = '';
+  beforeAll(() => { start = t.clock.now; t.clock.now = at(DAY, '06:00'); });
+  afterAll(async () => {
+    t.clock.now = start;
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payWhen: 'before' });
+  });
+  it('sets up tee houses with their menus and the club’s share, and gives tee house staff their tee house', async () => {
+    const r = await t.call(OWNER, 'PUT', `/courses/${id}/teehouses`, { teeHouses: [
+      { name: 'Hole 5 kiosk', concessionaire: 'Aling Nena', sharePercent: 10, rentAmount: 500000, rentNote: 'a month', items: [{ name: 'Iced tea', price: 8000 }, { name: 'Hotdog', price: 12000 }] },
+    ] });
+    expect(r.body[0]).toMatchObject({ name: 'Hole 5 kiosk', sharePercent: 10, receipts: 'club', rentAmount: 500000 });
+    houseId = r.body[0].id; iced = r.body[0].items.find((i: { name: string }) => i.name === 'Iced tea').id;
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/staff`, { email: KIOSK, role: 'teehouse' })).body.error).toMatch(/Pick the tee house/);
+    const s = await t.call(OWNER, 'POST', `/courses/${id}/staff`, { email: KIOSK, role: 'teehouse', teeHouseId: houseId });
+    expect(s.body.invites.find((i: { email: string }) => i.email === KIOSK)).toMatchObject({ role: 'teehouse', teeHouseId: houseId });
+    await t.call(KIOSK, 'GET', '/me'); // signs in: the invite is taken up
+    expect((await t.call(KIOSK, 'GET', `/courses/${id}`)).body).toMatchObject({ role: 'teehouse', course: { name: 'Valley Golf Club' } });
+    expect((await t.call(KIOSK, 'GET', `/courses/${id}/sheet?day=${DAY}`)).status).toBe(403);
+  });
+  it('registers each player on arrival without payment, and opens one passport per player', async () => {
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payWhen: 'after' });
+    const b = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 400, players: 2, playerTypes: [publicType, publicType], carts: 1, contactName: 'Ana Reyes', channel: 'phone' });
+    bookingId = b.body.id;
+    const r = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${bookingId}/register`, { players: [{ name: 'Ana Reyes', mobile: '0917 111 1111' }, { name: 'Ben Cruz', mobile: '0917 222 2222' }] });
+    expect(r.status).toBe(200);
+    expect(r.body.players.map((p: { name: string }) => p.name)).toEqual(['Ana Reyes', 'Ben Cruz']);
+    const cart = r.body.players[0].lines.find((l: { label: string }) => /cart/i.test(l.label));
+    expect(cart.unit).toBeTruthy();
+    expect(r.body.players[1].lines.some((l: { label: string }) => /cart/i.test(l.label))).toBe(false);
+    expect(r.body.total).toBe(r.body.players[0].total + r.body.players[1].total);
+    expect((await t.call(OWNER, 'GET', `/courses/${id}/bookings/${bookingId}/passports`)).body.settled).toBe(false);
+    // The group says Ben pays for the cart.
+    const moved = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${bookingId}/passport-move`, { unit: cart.unit, to: 2 });
+    expect(moved.body.players[1].lines.some((l: { label: string }) => /cart/i.test(l.label))).toBe(true);
+    expect(moved.body.total).toBe(r.body.total);
+  });
+  it('lets the tee house add orders to a player’s passport, counted once even when sent twice', async () => {
+    const day = await t.call(KIOSK, 'GET', `/courses/${id}/teehouse`);
+    expect(day.body.teeHouses.map((h: { id: string }) => h.id)).toEqual([houseId]);
+    expect(day.body.onCourse.find((g: { id: string }) => g.id === bookingId).players.map((p: { name: string }) => p.name)).toEqual(['Ana Reyes', 'Ben Cruz']);
+    const order = { clientId: 'phone-1', bookingId, playerN: 2, items: [{ itemId: iced, qty: 2 }, { label: 'Peanuts', unit: 5000 }] };
+    expect((await t.call(KIOSK, 'POST', `/courses/${id}/teehouse/charges`, order)).body).toEqual({ ok: true, repeated: false });
+    expect((await t.call(KIOSK, 'POST', `/courses/${id}/teehouse/charges`, order)).body).toEqual({ ok: true, repeated: true });
+    const p = await t.call(OWNER, 'GET', `/courses/${id}/bookings/${bookingId}/passports`);
+    expect(p.body.players[1].charges.map((c: { label: string; amount: number; teeHouse: string }) => [c.label, c.amount, c.teeHouse])).toEqual([['Iced tea', 16000, 'Hole 5 kiosk'], ['Peanuts', 5000, 'Hole 5 kiosk']]);
+    const peanuts = p.body.players[1].charges[1].id;
+    expect((await t.call(KIOSK, 'POST', `/courses/${id}/teehouse/charges/${peanuts}/void`, { reason: 'Wrong group' })).body).toEqual({ ok: true });
+    expect((await t.call(OWNER, 'GET', `/courses/${id}/bookings/${bookingId}/passports`)).body.players[1].charges).toHaveLength(1);
+  });
+  it('settles each passport at the counter after the round, and only then finishes the round', async () => {
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${bookingId}/played`)).body.error).toMatch(/Settle the passports first/);
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${bookingId}/payment`, { amount: 100, method: 'cash' })).body.error).toMatch(/settle their passports/);
+    const ben = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${bookingId}/settle`, { player: 2, method: 'gcash', ref: 'GC123' });
+    expect(ben.body.players[1].balance).toBe(0);
+    expect(ben.body.settled).toBe(false);
+    const all = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${bookingId}/settle`, { method: 'cash' });
+    expect(all.body).toMatchObject({ settled: true, balance: 0 });
+    expect((await t.call(KIOSK, 'POST', `/courses/${id}/teehouse/charges`, { clientId: 'phone-2', bookingId, playerN: 1, items: [{ itemId: iced }] })).body.error).toMatch(/already settled/);
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${bookingId}/played`)).body.status).toBe('played');
+  });
+  it('reports what each tee house sold, the club’s share and what’s due, and records the remittance', async () => {
+    const r = await t.call(OWNER, 'GET', `/courses/${id}/teehouse-report?from=${DAY}&to=${DAY}`);
+    expect(r.body.teeHouses[0]).toMatchObject({ name: 'Hole 5 kiosk', orders: 1, sales: 16000, share: 1600, due: 14400, collected: 16000, uncollected: 0, remitted: 0 });
+    expect((await t.call(STARTER, 'GET', `/courses/${id}/teehouse-report?from=${DAY}`)).status).toBe(403);
+    await t.call(OWNER, 'POST', `/courses/${id}/teehouse-remits`, { teeHouseId: houseId, day: DAY, amount: 14400, note: 'Cash to Aling Nena' });
+    const again = await t.call(OWNER, 'GET', `/courses/${id}/teehouse-report?from=${DAY}&to=${DAY}`);
+    expect(again.body.teeHouses[0].days[0].remitted).toMatchObject({ amount: 14400, note: 'Cash to Aling Nena' });
+  });
+});

@@ -160,7 +160,9 @@ function Book({ page, me, day, layoutId, slot, offer, onClose }: { page: CourseP
         <div className="pl-done">
           <Pass code={done.ref} course={page.course.name} when={`${shortDay(day)}, ${clock(slot.time)}`}
             detail={`${count} ${count === 1 ? 'player' : 'players'}, ${q.holes} holes${slot.tees.length > 1 || tee.startTee !== '1' ? `, from tee ${tee.startTee}` : ''}`} />
-          {done.payDueBy ? <p className="pl-payby"><b>Arrive and pay {peso(total)} by {courseClock(s, done.payDueBy)}{localParts(done.payDueBy, s.timeZone).day !== day ? `, ${shortDay(localParts(done.payDueBy, s.timeZone).day)}` : ''}.</b> After that your tee time opens to other golfers.</p>
+          {done.payDueBy && s.rules.payWhen === 'after' ? <p className="pl-payby"><b>Arrive and register by {courseClock(s, done.payDueBy)}{localParts(done.payDueBy, s.timeZone).day !== day ? `, ${shortDay(localParts(done.payDueBy, s.timeZone).day)}` : ''}.</b> You pay after your round.</p>
+            : s.rules.payWhen === 'after' ? <p className="pl-muted">Register at the counter when you arrive; you pay after your round. We’ve saved this in Bookings.</p>
+            : done.payDueBy ? <p className="pl-payby"><b>Arrive and pay {peso(total)} by {courseClock(s, done.payDueBy)}{localParts(done.payDueBy, s.timeZone).day !== day ? `, ${shortDay(localParts(done.payDueBy, s.timeZone).day)}` : ''}.</b> After that your tee time opens to other golfers.</p>
             : <p className="pl-muted">Pay <b>{peso(total)}</b> at the course. We’ve saved this in Bookings.</p>}
         </div>
       </Sheet>
@@ -171,7 +173,7 @@ function Book({ page, me, day, layoutId, slot, offer, onClose }: { page: CourseP
   return (
     <Sheet key="book" title={clock(slot.time)} sub={`${page.course.name}, ${shortDay(day)}`} onClose={onClose}
       footer={<>
-        <span className="pl-foot-total"><small>Pay at the course</small><b>{peso(total)}</b></span>
+        <span className="pl-foot-total"><small>{s.rules.payWhen === 'after' ? 'After your round' : 'Pay at the course'}</small><b>{peso(total)}</b></span>
         <Button disabled={busy || q.problems.length > 0 || count < least || missingName} onClick={() => void book()}>{busy ? 'Booking…' : `Book ${count} ${count === 1 ? 'player' : 'players'}`}</Button>
       </>}>
       {offer ? <p className="pl-offer">Held for you until <b>{courseClock(s, offer.until)}</b>. Book it before then, or it goes to the next golfer in line.</p> : null}
@@ -208,11 +210,11 @@ function Book({ page, me, day, layoutId, slot, offer, onClose }: { page: CourseP
         </section>
       ) : null}
 
-      <PriceList lines={q.lines} payWord="Pay at the course" />
+      <PriceList lines={q.lines} payWord={s.rules.payWhen === 'after' ? 'Pay after your round' : 'Pay at the course'} />
       {q.problems.length ? <ul className="pl-warn">{q.problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
 
       <section className="pl-pay">
-        <label className="on"><input type="radio" checked readOnly /><span><b>Pay at the course</b><small>Pay {peso(total)} at the counter when you arrive.</small></span></label>
+        <label className="on"><input type="radio" checked readOnly /><span><b>{s.rules.payWhen === 'after' ? 'Pay after your round' : 'Pay at the course'}</b><small>{s.rules.payWhen === 'after' ? `Register when you arrive; settle ${peso(total)} plus any food and drinks at the counter after playing.` : `Pay ${peso(total)} at the counter when you arrive.`}</small></span></label>
         <label className="off"><input type="radio" disabled /><span><b>GCash, Maya or QR Ph</b><small>Coming soon</small></span></label>
       </section>
       <label className="pl-field"><span>Note for the course (optional)</span><input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. need club rental" /></label>
@@ -231,7 +233,12 @@ const ahead = (m: number) => (m < 60 ? `${m} minutes` : m < 1440 ? `${m / 60} ${
 /** The club's pay deadline in a sentence, for golfers paying at the counter. */
 function payRule(s: CourseSetup): string | null {
   const b = s.rules.payBeforeMinutes, d = s.rules.payWithinDays;
-  if (!b && !d) return null;
+  const after = s.rules.payWhen === 'after';
+  if (!b && !d) return after ? 'You pay after your round: register at the counter when you arrive, and each player gets a passport for the round.' : null;
+  if (after) {
+    const parts = [b ? `at least ${ahead(b)} before your tee time` : '', d ? `within ${d} ${d === 1 ? 'day' : 'days'} of booking` : ''].filter(Boolean);
+    return `Register at the counter ${parts.join(', and ')}${b && d ? ', whichever comes first' : ''}; you pay after your round. If you haven’t registered by then, your tee time opens to other golfers.`;
+  }
   const parts = [b ? `at least ${ahead(b)} before your tee time` : '', d ? `within ${d} ${d === 1 ? 'day' : 'days'} of booking` : ''].filter(Boolean);
   return `Pay at the counter ${parts.join(', and ')}${b && d ? ', whichever comes first' : ''}. If it isn’t paid by then, your tee time opens to other golfers.`;
 }

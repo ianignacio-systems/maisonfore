@@ -2,7 +2,7 @@ import { audit, Forbidden, UserError, type Caller, type Db } from '@maison/core'
 import { oneOf, text } from './check';
 import { CAN, roleAt, ROLES, type Role } from './courses';
 
-const ROLE_WORDS: Record<Role, string> = { owner: 'Owner', manager: 'Manager', starter: 'Starter', viewer: 'View only' };
+const ROLE_WORDS: Record<Role, string> = { owner: 'Owner', manager: 'Manager', starter: 'Starter', viewer: 'View only', teehouse: 'Tee house' };
 const email = (v: unknown) => {
   const e = text(v, 'the email', { required: true, max: 120 }).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new UserError('Enter a valid email address.');
@@ -16,9 +16,11 @@ export async function listStaff(db: Db, c: Caller, courseId: string) {
     'select email, role, added_at from members where business_id = $1 order by case role when \'owner\' then 0 when \'manager\' then 1 when \'starter\' then 2 else 3 end, email', [courseId]);
   const invites = await db.query<{ email: string; role: Role; invited_by: string; created_at: number }>(
     'select email, role, invited_by, created_at from invites where business_id = $1 order by created_at desc', [courseId]);
+  const houses = new Map((await db.query<{ email: string; tee_house_id: string }>('select email, tee_house_id from tee_house_staff where business_id = $1', [courseId])).map((r) => [r.email, r.tee_house_id]));
+  const house = (e: string, role: Role) => (role === 'teehouse' ? houses.get(e.toLowerCase()) ?? null : null);
   return {
-    staff: members.map((m) => ({ email: m.email, role: m.role, since: Number(m.added_at), you: m.email.toLowerCase() === c.email.toLowerCase() })),
-    invites: invites.map((i) => ({ email: i.email, role: i.role, invitedBy: i.invited_by, at: Number(i.created_at) })),
+    staff: members.map((m) => ({ email: m.email, role: m.role, teeHouseId: house(m.email, m.role), since: Number(m.added_at), you: m.email.toLowerCase() === c.email.toLowerCase() })),
+    invites: invites.map((i) => ({ email: i.email, role: i.role, teeHouseId: house(i.email, i.role), invitedBy: i.invited_by, at: Number(i.created_at) })),
   };
 }
 
@@ -29,7 +31,7 @@ export async function listStaff(db: Db, c: Caller, courseId: string) {
 export async function inviteStaff(db: Db, c: Caller, courseId: string, input: Record<string, unknown>, now = Date.now()) {
   await roleAt(db, c, courseId, CAN.staff);
   const e = email(input.email);
-  const role = oneOf(input.role, 'owner, manager, starter or view only', ROLES);
+  const role = oneOf(input.role, 'owner, manager, starter, view only or tee house', ROLES);
   await db.tx(async (q) => {
     if ((await q.query('select 1 from members where business_id = $1 and lower(email) = $2', [courseId, e])).length) throw new UserError(`${e} is already on the staff. Change their role instead.`);
     const [a] = await q.query<{ id: string }>('select id from accounts where lower(email) = $1', [e]);
@@ -39,6 +41,7 @@ export async function inviteStaff(db: Db, c: Caller, courseId: string, input: Re
       await q.query(`insert into invites (business_id, email, role, invited_by, created_at) values ($1, $2, $3, $4, $5)
         on conflict (business_id, email) do update set role = excluded.role, invited_by = excluded.invited_by, created_at = excluded.created_at`, [courseId, e, role, c.email, now]);
     }
+    await setTeeHouse(q, courseId, e, role, input);
     await audit(q, courseId, c.email, a ? 'staff.added' : 'staff.invited', e, ROLE_WORDS[role], null, now);
   });
   return listStaff(db, c, courseId);
@@ -48,7 +51,7 @@ export async function inviteStaff(db: Db, c: Caller, courseId: string, input: Re
 export async function changeRole(db: Db, c: Caller, courseId: string, input: Record<string, unknown>, now = Date.now()) {
   await roleAt(db, c, courseId, CAN.staff);
   const e = email(input.email);
-  const role = oneOf(input.role, 'owner, manager, starter or view only', ROLES);
+  const role = oneOf(input.role, 'owner, manager, starter, view only or tee house', ROLES);
   await db.tx(async (q) => {
     const [m] = await q.query<{ role: Role }>('select role from members where business_id = $1 and lower(email) = $2 for update', [courseId, e]);
     if (!m) {
@@ -58,9 +61,20 @@ export async function changeRole(db: Db, c: Caller, courseId: string, input: Rec
       if (m.role === 'owner' && role !== 'owner') await keepAnOwner(q, courseId);
       await q.query('update members set role = $3 where business_id = $1 and lower(email) = $2', [courseId, e, role]);
     }
+    await setTeeHouse(q, courseId, e, role, input);
     await audit(q, courseId, c.email, 'staff.role', e, ROLE_WORDS[role], null, now);
   });
   return listStaff(db, c, courseId);
+}
+
+/** Tee house staff work at one tee house: saves which (refuses the role without one). */
+async function setTeeHouse(q: Db, courseId: string, e: string, role: Role, input: Record<string, unknown>) {
+  if (role !== 'teehouse') { await q.query('delete from tee_house_staff where business_id = $1 and email = $2', [courseId, e]); return; }
+  const id = text(input.teeHouseId, 'the tee house', { max: 40 });
+  if (!id || !(await q.query('select 1 from tee_houses where business_id = $1 and id = $2', [courseId, id])).length) {
+    throw new UserError('Pick the tee house they work at. Add tee houses in Settings first.');
+  }
+  await q.query('insert into tee_house_staff (business_id, email, tee_house_id) values ($1, $2, $3) on conflict (business_id, email) do update set tee_house_id = excluded.tee_house_id', [courseId, e, id]);
 }
 
 /** Removes a staff member or cancels an invite. */
@@ -75,6 +89,7 @@ export async function removeStaff(db: Db, c: Caller, courseId: string, who: stri
     } else if (!(await q.query('delete from invites where business_id = $1 and email = $2 returning email', [courseId, e])).length) {
       throw new UserError(`${e} isn’t on the staff.`);
     }
+    await q.query('delete from tee_house_staff where business_id = $1 and email = $2', [courseId, e]);
     await audit(q, courseId, c.email, 'staff.removed', e, '', null, now);
   });
   return listStaff(db, c, courseId);

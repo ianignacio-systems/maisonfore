@@ -6,14 +6,18 @@ import {
 } from '@maison/engine';
 import { day, int, minutes, oneOf, text } from './check';
 
-export type Role = 'owner' | 'manager' | 'starter' | 'viewer';
-export const ROLES: readonly Role[] = ['owner', 'manager', 'starter', 'viewer'];
+export type Role = 'owner' | 'manager' | 'starter' | 'viewer' | 'teehouse';
+export const ROLES: readonly Role[] = ['owner', 'manager', 'starter', 'viewer', 'teehouse'];
 /**
  * Who may do what. Viewers see the tee sheet and bookings but change nothing; starters run the day's
- * tee sheet; managers also set the course up; owners also manage staff.
+ * tee sheet; managers also set the course up; owners also manage staff. Tee house staff only add food and
+ * drinks to golfers' passports at their tee house.
  */
 export const CAN = {
-  view: ROLES,
+  /** Tee house staff see only their tee house screen, never the tee sheet or the course's money. */
+  view: ['owner', 'manager', 'starter', 'viewer'] as const,
+  /** Adding food and drinks to passports: tee house staff, and the counter. */
+  teehouse: ['owner', 'manager', 'starter', 'teehouse'] as const,
   daily: ['owner', 'manager', 'starter'] as const,
   setup: ['owner', 'manager'] as const,
   records: ['owner', 'manager'] as const,
@@ -301,6 +305,7 @@ export async function saveRules(db: Db, c: Caller, id: string, input: Record<str
     payBeforeMinutes: input.payBeforeMinutes === null || input.payBeforeMinutes === undefined || input.payBeforeMinutes === '' ? null : int(input.payBeforeMinutes, 'how long before the tee time to pay (minutes)', 0, 7 * 24 * 60),
     payWithinDays: input.payWithinDays === null || input.payWithinDays === undefined || input.payWithinDays === '' ? null : int(input.payWithinDays, 'the days to pay after booking', 1, 60),
     waitlistClaimMinutes: int(input.waitlistClaimMinutes ?? 15, 'the time to claim a waitlist offer (minutes)', 3, 60),
+    payWhen: input.payWhen === 'after' ? 'after' : 'before',
   };
   await db.tx(async (q) => {
     await q.query('update courses set rules = $2 where business_id = $1', [id, JSON.stringify(r)]);

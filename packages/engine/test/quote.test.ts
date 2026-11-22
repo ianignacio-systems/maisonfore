@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { counterSplit, dueWithBooking, feeAmount, holesOffered, quote, type Fee } from '../src';
+import { counterSplit, dueWithBooking, feeAmount, holesOffered, passportLines, quote, type Fee } from '../src';
 import { course, pt } from './helpers';
 
 // A Philippine-style rate card: locals and foreigners, seniors on Wednesdays, juniors from 11:00 AM,
@@ -115,5 +115,26 @@ describe('quote', () => {
     expect(quote(ph, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['SEN'] }).problems).toContain('Senior rates are for Wednesdays only.');
     expect(quote(ph, { layoutId: 'L18', day: MON, time: 600, holes: 18, players: ['JUN'] }).problems).toContain('Junior tee time starts at 11:00 AM.');
     expect(quote(ph, { layoutId: 'L18', day: SAT, time: 700, holes: 18, players: ['JUN'] }).problems).toContain('There is no 18-hole weekend green fee for Junior yet.');
+  });
+});
+
+describe('passports (paying after playing)', () => {
+  it('puts each player’s own green fee and per-player fees on their passport, and each cart in full on one passport', () => {
+    const q = quote(ph, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['LOC', 'LOC', 'FOR', 'LOC'], carts: 2, gallery: 1 });
+    const types = ['LOC', 'LOC', 'FOR', 'LOC'].map((t) => ({ typeId: t, rate: q.lines.find((l) => l.key === `green:${t}`)!.amount / (t === 'LOC' ? 3 : 1) }));
+    const p = passportLines(ph, { day: MON, holes: 18, lines: q.lines }, types);
+    const sum = (i: number) => p[i].reduce((s, l) => s + l.amount, 0);
+    expect(p.flat().reduce((s, l) => s + l.amount, 0)).toBe(counterSplit(q.lines, true).total);
+    expect(p[0].filter((l) => /cart/i.test(l.label))).toHaveLength(1);
+    expect(p[2].filter((l) => /cart/i.test(l.label))).toHaveLength(1);
+    expect(p[1].some((l) => /cart/i.test(l.label))).toBe(false);
+    expect(p[0].some((l) => l.label === 'Gallery')).toBe(true);
+    expect(p.flat().some((l) => /caddie/i.test(l.label))).toBe(false);
+    // The group says player 2 pays for the first cart.
+    const unit = p[0].find((l) => /cart/i.test(l.label))!.unit!;
+    const moved = passportLines(ph, { day: MON, holes: 18, lines: q.lines }, types, { [unit]: 2 });
+    expect(moved[1].some((l) => /cart/i.test(l.label))).toBe(true);
+    expect(moved.flat().reduce((s, l) => s + l.amount, 0)).toBe(p.flat().reduce((s, l) => s + l.amount, 0));
+    expect(sum(2)).toBeGreaterThan(0);
   });
 });

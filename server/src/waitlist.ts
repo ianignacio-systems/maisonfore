@@ -240,12 +240,14 @@ export async function payReminders(db: Db, now = Date.now()) {
     const setup = await loadSetup(db, r.business_id);
     const due = Number(r.pay_due_by);
     const when = `${r.name}, ${formatDay(r.day)} ${formatTime(r.time_min)}`;
+    // Clubs where golfers pay after playing ask them to arrive and register by the deadline instead.
+    const after = setup.rules.payWhen === 'after';
     if (due > now) {
-      await tell(db, r.golfer_account, { businessId: r.business_id, kind: 'pay_reminder', refId: `pay:${r.id}:${due}`, title: `Arrive and pay by ${clockAt(setup, due)}`,
-        body: `${when}: pay at the counter by ${clockAt(setup, due)} to keep your tee time. After that it opens to other golfers.`, link: '/play/bookings' }, now);
+      await tell(db, r.golfer_account, { businessId: r.business_id, kind: 'pay_reminder', refId: `pay:${r.id}:${due}`, title: `Arrive and ${after ? 'register' : 'pay'} by ${clockAt(setup, due)}`,
+        body: `${when}: ${after ? 'register' : 'pay'} at the counter by ${clockAt(setup, due)} to keep your tee time. After that it opens to other golfers.`, link: '/play/bookings' }, now);
     } else {
       await tell(db, r.golfer_account, { businessId: r.business_id, kind: 'lapsed', refId: `lapsed:${r.id}:${due}`, title: 'Your tee time is open to others',
-        body: `${when}: it wasn’t paid by ${clockAt(setup, due)}, so other golfers can book it now. If it’s still free when you arrive, you can pay at the counter and keep it.`, link: '/play/bookings' }, now);
+        body: `${when}: you didn’t ${after ? 'register' : 'pay'} by ${clockAt(setup, due)}, so other golfers can book it now. If it’s still free when you arrive, ${after ? 'register' : 'pay'} at the counter and keep it.`, link: '/play/bookings' }, now);
     }
   }
 }

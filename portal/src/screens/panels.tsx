@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Btn, Field, Seg, Select, Sheet, Stepper } from '@maison/core/ui/kit';
 import { addDays, counterSplit, dueWithBooking, localParts, mustPayNow, payDeadline, formatDay, formatTime, holesOffered, isPencil, minPlayers, paidForCheckIn, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
 import { api, type SheetData, type StaffBooking, type StaffSlot } from '../api';
+import { PassportsPanel, RegisterForm, type PassportsData } from './Passports';
 
 const toMin = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const CHANNEL: Record<string, string> = { phone: 'Phone', viber: 'Viber', walkin: 'Walk-in', app: 'App', staff: 'Staff' };
@@ -188,13 +189,27 @@ export function Price({ lines, problems = [], payAtCourse = false }: { lines: Qu
  * One booking: check in, mark played or no-show, cancel, move it to another time, record a payment at the
  * counter, or fix the golfer's details. View-only staff see it and change nothing.
  */
-export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, onDone }: {
-  courseId: string; b: StaffBooking; setup: CourseSetup; readOnly?: boolean; justMade?: boolean; onClose: () => void; onDone: () => void;
+export function BookingPanel({ courseId, b, setup, courseName = '', readOnly, justMade, onClose, onDone }: {
+  courseId: string; b: StaffBooking; setup: CourseSetup; courseName?: string; readOnly?: boolean; justMade?: boolean; onClose: () => void; onDone: () => void;
 }) {
+  // Paying after playing: golfers register on arrival (passports open) and settle after the round.
+  const after = setup.rules.payWhen === 'after';
+  const [passports, setPassports] = useState<PassportsData | null>(null);
+  const [changed, setChanged] = useState(false);
+  useEffect(() => {
+    if (!after || (b.status !== 'checked_in' && b.status !== 'played')) return;
+    let live = true;
+    api<PassportsData>(`/courses/${courseId}/bookings/${b.id}/passports`).then((r) => { if (live) setPassports(r); }).catch(() => { /* shown on retry */ });
+    return () => { live = false; };
+  }, [after, courseId, b.id, b.status]);
+  const registered = passports !== null && (b.status === 'checked_in' || b.status === 'played' || changed);
   const [msg, setMsg] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   // Just booked by phone, Viber or at the counter: go straight to taking the payment.
-  const [mode, setMode] = useState<'view' | 'cancel' | 'move' | 'pay' | 'edit'>(justMade && !readOnly && b.payStatus === 'unpaid' ? 'pay' : 'view');
+  // (Paying after playing: a same-day walk-in registers straight away instead.)
+  const [mode, setMode] = useState<'view' | 'cancel' | 'move' | 'pay' | 'edit' | 'register'>(
+    justMade && !readOnly && after ? (b.channel === 'walkin' && b.day === localParts(Date.now(), setup.timeZone).day ? 'register' : 'view')
+      : justMade && !readOnly && b.payStatus === 'unpaid' ? 'pay' : 'view');
   const pencil = isPencil(b, Date.now());
   const clockOf = (ms: number) => new Date(ms).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: setup.timeZone });
   const [roster, setRoster] = useState<{ n: number; name: string; player_type_id: string }[]>([]);
@@ -210,11 +225,12 @@ export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, 
   };
   const active = b.status === 'held' || b.status === 'confirmed';
   const unpaid = b.payStatus === 'unpaid' && b.status !== 'cancelled' && b.status !== 'expired';
-  const canCheckIn = (b.status === 'confirmed' || b.status === 'no_show') && paidForCheckIn(b);
-  const payFirst = (b.status === 'confirmed' || b.status === 'no_show') && !canCheckIn;
+  const canCheckIn = !after && (b.status === 'confirmed' || b.status === 'no_show') && paidForCheckIn(b);
+  const canRegister = after && !registered && (b.status === 'confirmed' || b.status === 'no_show');
+  const payFirst = !after && (b.status === 'confirmed' || b.status === 'no_show') && !canCheckIn;
   const layoutName = setup.layouts.length > 1 ? setup.layouts.find((l) => l.id === b.layoutId)?.name : null;
   return (
-    <Sheet open title={b.contactName} eyebrow={`${formatDay(b.day)}, ${b.time < 0 ? 'no set time' : formatTime(b.time)}${b.special ? ', special booking' : ''}${layoutName ? `, ${layoutName}` : ''}${b.startTee !== '1' ? `, tee ${b.startTee}` : ''}`} onClose={onClose} width={600}>
+    <Sheet open title={b.contactName} eyebrow={`${formatDay(b.day)}, ${b.time < 0 ? 'no set time' : formatTime(b.time)}${b.special ? ', special booking' : ''}${layoutName ? `, ${layoutName}` : ''}${b.startTee !== '1' ? `, tee ${b.startTee}` : ''}`} onClose={changed ? onDone : onClose} width={600}>
       <dl className="fore-facts">
         <div><dt>Status</dt><dd><span className={`fore-status s-${b.status}`}>{STATUS_WORDS[b.status]}</span></dd></div>
         <div><dt>Players</dt><dd>{b.players}, {b.holes} holes</dd></div>
@@ -222,32 +238,37 @@ export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, 
         <div><dt>Booked by</dt><dd>{CHANNEL[b.channel] ?? b.channel}</dd></div>
         <div><dt>Reference</dt><dd className="fore-ref">{b.ref}</dd></div>
         <div className={pencil || b.status === 'held' ? 'wide' : ''}><dt>Payment</dt><dd>{b.payStatus === 'paid_course' ? `${peso(b.paidAmount)} paid at the counter${b.paidMethod ? `, ${METHOD[b.paidMethod] ?? b.paidMethod}` : ''}` : b.payStatus === 'paid_online' ? 'Paid in the app'
-          : pencil ? <span className="fore-pencil-note">Not paid in time: now a pencil booking. Others can book this time. Record the payment to put it back, if there’s still room.</span>
+          : pencil ? <span className="fore-pencil-note">{after ? 'Not registered in time: now a pencil booking. Others can book this time. Register them to put it back, if there’s still room.' : 'Not paid in time: now a pencil booking. Others can book this time. Record the payment to put it back, if there’s still room.'}</span>
             : b.status === 'held' && b.holdExpiresAt ? (b.createdBy === 'waitlist'
               ? `Waitlist offer: held for this golfer until ${clockOf(b.holdExpiresAt)}. They book it in the app; if they don’t, it goes to the next in line.`
               : `Pay now: held until ${clockOf(b.holdExpiresAt)}. Record the payment to confirm it; otherwise the time is released.`)
-              : b.payDueBy ? `Not paid yet. Pay by ${new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}, or it becomes a pencil booking.` : 'Not paid yet'}</dd></div>
+              : after && registered ? (passports?.settled ? 'Settled after the round' : 'Registered: settles after the round')
+              : b.payDueBy ? `${after ? 'Not registered yet. Register' : 'Not paid yet. Pay'} by ${new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}, or it becomes a pencil booking.`
+                : after ? 'Pays after the round' : 'Not paid yet'}</dd></div>
         {b.mobile ? <div><dt>Mobile</dt><dd><a href={`tel:${b.mobile}`}>{b.mobile}</a></dd></div> : null}
         {b.email ? <div><dt>Email</dt><dd><a href={`mailto:${b.email}`}>{b.email}</a></dd></div> : null}
         {b.notes ? <div className="wide"><dt>Note</dt><dd>{b.notes}</dd></div> : null}
-        {roster.length ? (
+        {roster.length && !(registered && passports) ? (
           <div className="wide"><dt>Players</dt><dd>
             <ol className="fore-roster">{roster.map((p) => <li key={p.n}><span>{p.name || <i>No name yet</i>}</span><small>{typeName(p.player_type_id)}</small></li>)}</ol>
           </dd></div>
         ) : null}
       </dl>
-      {b.quote?.length ? <Price lines={b.quote} total={b.amount} payAtCourse={b.channel === 'app' && b.payStatus !== 'paid_online'} /> : null}
+      {registered && passports ? <PassportsPanel courseId={courseId} b={b} setup={setup} courseName={courseName} data={passports} readOnly={readOnly} onChange={(p) => { setPassports(p); setChanged(true); }} />
+        : b.quote?.length ? <Price lines={b.quote} total={b.amount} payAtCourse={(b.channel === 'app' || after) && b.payStatus !== 'paid_online'} /> : null}
 
       {readOnly ? <p className="muted small">You can view bookings. Ask the owner if you need to change them.</p> : mode === 'view' ? (
         <>
           <div className="row wrap">
             {b.status === 'held' ? <Btn kind="primary" onClick={() => void act('confirm')}>Confirm booking</Btn> : null}
             {canCheckIn ? <Btn kind="primary" onClick={() => void act('check-in')}>Check in</Btn> : null}
-            {b.status === 'checked_in' ? <Btn kind="primary" onClick={() => void act('played')}>Mark round played</Btn> : null}
-            {unpaid ? <Btn kind={payFirst ? 'primary' : undefined} onClick={() => setMode('pay')}>Record payment</Btn> : null}
+            {canRegister ? <Btn kind="primary" onClick={() => setMode('register')}>Register</Btn> : null}
+            {b.status === 'checked_in' || (registered && b.status !== 'played') ? <Btn kind={after && !passports?.settled ? undefined : 'primary'} disabled={after && !passports?.settled} onClick={() => void act('played')}>Mark round played</Btn> : null}
+            {unpaid && !(after && registered) ? <Btn kind={payFirst ? 'primary' : undefined} onClick={() => setMode('pay')}>{after ? 'Record payment ahead' : 'Record payment'}</Btn> : null}
             {b.status === 'confirmed' ? <Btn onClick={() => void act('no-show')}>Mark no-show</Btn> : null}
           </div>
           {payFirst ? <p className="muted small">Check-in opens once the booking is paid.</p> : null}
+          {after && registered && !passports?.settled && b.status !== 'played' ? <p className="muted small">The round can be finished once every passport is settled.</p> : null}
           <div className="row wrap">
             {active ? <Btn kind="ghost" onClick={() => setMode('move')}>{b.special ? 'Put on a tee time' : 'Move to another time'}</Btn> : null}
             <Btn kind="ghost" onClick={() => setMode('edit')}>Edit golfer details</Btn>
@@ -260,6 +281,7 @@ export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, 
           <div className="row"><Btn kind="danger" onClick={() => void act('cancel', { reason })}>Cancel booking</Btn><Btn kind="ghost" onClick={() => setMode('view')}>Keep it</Btn></div>
         </div>
       ) : mode === 'move' ? <MoveBooking courseId={courseId} b={b} setup={setup} onBack={() => setMode('view')} onDone={onDone} />
+        : mode === 'register' ? <RegisterForm courseId={courseId} b={b} roster={roster} required={setup.rules.playerNames === 'required'} onBack={() => setMode('view')} onDone={(p) => { setPassports(p); setChanged(true); setMode('view'); setRoster(p.players.map((x) => ({ n: x.n, name: x.name, player_type_id: roster.find((r) => r.n === x.n)?.player_type_id ?? '' }))); }} />
         : mode === 'pay' ? <RecordPayment courseId={courseId} b={b} justMade={justMade} onBack={justMade ? onClose : () => setMode('view')} onDone={onDone} />
           : <EditDetails courseId={courseId} b={b} roster={roster} typeName={typeName} required={setup.rules.playerNames === 'required'} onBack={() => setMode('view')} onDone={onDone} />}
       {msg ? <p className="fore-error">{msg}</p> : null}

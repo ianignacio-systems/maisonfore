@@ -1,4 +1,4 @@
-Changed or new files (46):
+Changed or new files (54):
   README.md
   SETUP.md
   app/index.html
@@ -23,18 +23,24 @@ Changed or new files (46):
   packages/engine/src/types.ts
   packages/engine/test/engine.test.ts
   packages/engine/test/quote.test.ts
+  portal/package.json
   portal/src/api.ts
   portal/src/fore.css
   portal/src/screens/CourseApp.tsx
   portal/src/screens/NewCourse.tsx
+  portal/src/screens/Passports.tsx
   portal/src/screens/Settings.tsx
   portal/src/screens/SignIn.tsx
+  portal/src/screens/Staff.tsx
+  portal/src/screens/TeeHouse.tsx
+  portal/src/screens/TeeHouseReport.tsx
   portal/src/screens/TeeSheet.tsx
   portal/src/screens/Waiting.tsx
   portal/src/screens/panels.tsx
   render.production.yaml
   render.yaml
   server/migrations/007_waitlist.sql
+  server/migrations/008_passports.sql
   server/package.json
   server/src/app.ts
   server/src/bookings.ts
@@ -43,5 +49,7 @@ Changed or new files (46):
   server/src/main.ts
   server/src/notify.ts
   server/src/overview.ts
+  server/src/passports.ts
+  server/src/staff.ts
   server/src/waitlist.ts
   server/test/api.test.ts

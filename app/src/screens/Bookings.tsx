@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { counterSplit, formatDay, localParts, peso, weekday } from '@maison/engine';
-import { api, teeFor, teeTimes, type MyBooking, type Times, type WaitEntry } from '../api';
+import { api, teeFor, teeTimes, type GolferPassports, type MyBooking, type Times, type WaitEntry } from '../api';
 import { Button, clock, Days, go, Pass, PriceList, Sheet, SHORT, shortDay } from '../ui';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -61,7 +61,9 @@ export function Bookings() {
                 <button className="pl-ticket" onClick={() => setOpen(b)}>
                   <span className="stub"><small>{SHORT[weekday(b.day)]}</small><b>{Number(b.day.slice(8))}</b><small>{MON[Number(b.day.slice(5, 7)) - 1]}</small></span>
                   <span className="what"><span className="tm">{clock(b.time)}</span><b>{b.course.name}</b><small>{b.players} {b.players === 1 ? 'player' : 'players'}, {b.holes} holes{b.layoutName ? `, ${b.layoutName}` : ''}</small>
-                    {b.lapsed ? <small className="pl-lapsed">Not paid in time: open to others</small> : b.payBy ? <small className="pl-due">Pay by {b.payBy}{b.payByDay !== b.day && b.payByDay ? `, ${shortDay(b.payByDay)}` : ''}</small> : null}</span>
+                    {b.passports ? <small className="pl-due">{b.passports.settled ? 'Settled' : `Playing: ${peso(b.passports.balance)} so far`}</small>
+                      : b.lapsed ? <small className="pl-lapsed">Not {b.payWhen === 'after' ? 'registered' : 'paid'} in time: open to others</small>
+                        : b.payBy ? <small className="pl-due">{b.payWhen === 'after' ? 'Register' : 'Pay'} by {b.payBy}{b.payByDay !== b.day && b.payByDay ? `, ${shortDay(b.payByDay)}` : ''}</small> : null}</span>
                   <span className="ref">{b.ref}</span>
                 </button>
               </li>
@@ -99,8 +101,11 @@ function Ticket({ b, onClose, onChanged }: { b: MyBooking; onClose: () => void; 
         <Pass code={b.ref} course={b.course.name} when={`${shortDay(b.day)}, ${clock(b.time)}`}
           detail={`${b.players} ${b.players === 1 ? 'player' : 'players'}, ${b.holes} holes${b.startTee !== '1' ? `, from tee ${b.startTee}` : ''}`} />
       ) : null}
-      {b.upcoming && mode === 'view' && b.lapsed ? (
-        <p className="pl-lapsed-box"><b>Not paid in time.</b> Your tee time is open to other golfers now. If it’s still free when you arrive, pay at the counter to keep it.</p>
+      {b.passports && mode === 'view' ? <PassportView p={b.passports} />
+      : b.upcoming && mode === 'view' && b.lapsed ? (
+        <p className="pl-lapsed-box"><b>Not {b.payWhen === 'after' ? 'registered' : 'paid'} in time.</b> Your tee time is open to other golfers now. If it’s still free when you arrive, {b.payWhen === 'after' ? 'register' : 'pay'} at the counter to keep it.</p>
+      ) : b.upcoming && mode === 'view' && b.payBy && b.payWhen === 'after' ? (
+        <p className="pl-payby"><b>Arrive and register by {b.payBy}{b.payByDay !== b.day && b.payByDay ? `, ${shortDay(b.payByDay)}` : ''}.</b> Each player gets a passport; you pay after your round. After that time your tee time opens to other golfers.</p>
       ) : b.upcoming && mode === 'view' && b.payBy ? (
         <p className="pl-payby"><b>Arrive and pay {peso(counterSplit(b.quote, true).total)} by {b.payBy}{b.payByDay !== b.day && b.payByDay ? `, ${shortDay(b.payByDay)}` : ''}.</b> After that your tee time opens to other golfers.</p>
       ) : !(b.upcoming && mode === 'view') ? <p className={`pl-status s-${b.status}`}>{b.statusWords}</p> : null}
@@ -110,10 +115,10 @@ function Ticket({ b, onClose, onChanged }: { b: MyBooking; onClose: () => void; 
             <div><dt>Players</dt><dd>{b.players}, {b.holes} holes</dd></div>
             {b.carts || b.caddies || b.gallery ? <div><dt>With</dt><dd>{[b.carts ? `${b.carts} ${b.carts === 1 ? 'cart' : 'carts'}` : '', b.caddies ? `${b.caddies} ${b.caddies === 1 ? 'caddie' : 'caddies'}` : '', b.gallery ? `${b.gallery} gallery` : ''].filter(Boolean).join(', ')}</dd></div> : null}
             {b.layoutName || b.startTee !== '1' ? <div><dt>Starts</dt><dd>{[b.layoutName, b.startTee !== '1' ? `tee ${b.startTee}` : ''].filter(Boolean).join(', ')}</dd></div> : null}
-            <div><dt>Payment</dt><dd>{b.payStatus === 'unpaid' ? `Pay ${peso(counterSplit(b.quote, true).total)} at the course` : 'Paid'}</dd></div>
+            <div><dt>Payment</dt><dd>{b.payStatus !== 'unpaid' ? 'Paid' : b.payWhen === 'after' ? 'After your round' : `Pay ${peso(counterSplit(b.quote, true).total)} at the course`}</dd></div>
           </dl>
           <ol className="pl-roster">{b.roster.map((p, i) => <li key={i}><span>{p.name || `Player ${i + 1}`}</span><small>{p.type}</small></li>)}</ol>
-          <PriceList lines={b.quote} payWord={b.payStatus === 'unpaid' ? 'Pay at the course' : 'Total'} />
+          {b.passports ? null : <PriceList lines={b.quote} payWord={b.payStatus !== 'unpaid' ? 'Total' : b.payWhen === 'after' ? 'Pay after your round' : 'Pay at the course'} />}
           {b.upcoming ? (b.canChange ? (
             <div className="pl-actions">
               <Button kind="line" onClick={() => setMode('move')}>Change time</Button>
@@ -172,4 +177,21 @@ function Countdown({ until }: { until: number }) {
   const left = Math.max(0, until - now);
   const m = Math.floor(left / 60_000), sec = Math.floor((left % 60_000) / 1000);
   return <span className="pl-countdown" aria-label={`${m} minutes left`}>{left ? `${m}:${String(sec).padStart(2, '0')} left` : 'Ended'}</span>;
+}
+
+/** The group's passports, live: each player's charges and the tee houses' orders, settled at the counter after the round. */
+function PassportView({ p }: { p: GolferPassports }) {
+  return (
+    <section className="pl-passports">
+      <div className="pl-pp-head"><b>{p.settled ? 'All settled. Thanks for playing!' : 'Your passports'}</b><span>{p.settled ? peso(p.paid) : `${peso(p.balance)} to settle after your round`}</span></div>
+      {p.players.map((x) => (
+        <div key={x.n} className={`pl-pp${x.balance <= 0 ? ' settled' : ''}`}>
+          <div className="pl-pp-top"><b>{x.name || `Player ${x.n}`}</b><span>{x.balance <= 0 ? 'Settled' : peso(x.balance)}</span></div>
+          {x.lines.map((l, i) => <div key={i} className="pl-pp-row"><span>{l.label}</span><span>{peso(l.amount)}</span></div>)}
+          {x.charges.map((c) => <div key={c.id} className="pl-pp-row fb"><span>{c.qty > 1 ? `${c.qty} × ` : ''}{c.label}<small>{c.teeHouse}</small></span><span>{peso(c.amount)}</span></div>)}
+        </div>
+      ))}
+      <p className="pl-muted small">Tee house orders show here as they’re added. Caddie fees are paid separately.</p>
+    </section>
+  );
 }

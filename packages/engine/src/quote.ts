@@ -181,3 +181,59 @@ export function counterSplit<L extends LineLike>(lines: L[], payAtCourse: boolea
   const separate = lines.filter((l) => !collect.includes(l));
   return { collect, separate, total: collect.reduce((s, l) => s + l.amount, 0) };
 }
+
+/**
+ * One line on a player's passport. `unit` names a charge that belongs to one passport but could be on
+ * another (a cart, a gallery guest, a fee once per booking): the counter can move it to the player who pays.
+ */
+export interface PassportLine { label: string; amount: number; unit: string | null }
+
+/**
+ * Splits what the counter collects for a booking into one passport per player:
+ * - each player's own green fee and per-player fees (insurance, development fee…) at their player type's rate;
+ * - each cart in full on one passport (the first rider of each cart: players 1, 3…), each gallery guest and
+ *   each once-per-booking fee in full on player 1's; `moved` puts any of these on another player's passport;
+ * - caddie fees, settled separately, are never on a passport (unless paid with the booking).
+ * A charge whose fee has changed since the booking is shared evenly, so the totals always match.
+ */
+export function passportLines(setup: CourseSetup, b: { day: Day; holes: 9 | 18; lines: QuoteLine[] },
+  players: { typeId: string; rate: number }[], moved: Record<string, number> = {}): PassportLine[][] {
+  const n = Math.max(1, players.length);
+  const out: PassportLine[][] = Array.from({ length: n }, () => []);
+  const typeName = (id: string) => setup.playerTypes.find((t) => t.id === id)?.name ?? '';
+  const dt = dayType(b.day, setup.holidays) === 'weekday' ? 'weekday' : 'weekend';
+  const seats = Math.max(1, setup.options.cartSeats);
+  const put = (i: number, l: PassportLine) => { if (l.amount) out[Math.min(Math.max(0, l.unit && moved[l.unit] !== undefined ? moved[l.unit] - 1 : i), n - 1)].push(l); };
+  const share = (label: string, amount: number) => {
+    const base = Math.floor(amount / n), extra = amount - base * n;
+    out.forEach((p, i) => { const a = base + (i < extra ? 1 : 0); if (a) p.push({ label: n > 1 ? `${label} (shared)` : label, amount: a, unit: null }); });
+  };
+  for (const l of counterSplit(b.lines, true).collect) {
+    const isGreen = l.kind === 'green' || (!l.kind && l.key.startsWith('green:'));
+    if (isGreen) {
+      // One line per player type; each player of that type pays their own rate.
+      const typeId = l.key.slice('green:'.length);
+      const mine = players.map((p, i) => ({ p, i })).filter((x) => x.p.typeId === typeId);
+      if (mine.length && mine.reduce((s, x) => s + x.p.rate, 0) === l.amount) mine.forEach((x) => put(x.i, { label: `Green fee, ${typeName(typeId) || 'player'}`, amount: x.p.rate, unit: null }));
+      else share(l.label, l.amount);
+      continue;
+    }
+    const fee = l.feeId ? setup.fees.find((f) => f.id === l.feeId) : undefined;
+    const per = fee?.per ?? (l.kind === 'cart' ? 'cart' : l.kind === 'gallery' ? 'guest' : undefined);
+    const label = l.label.replace(/\s*\(\d+ (carts|caddies|guests)\)$/, '');
+    if (per === 'player' && fee) {
+      const each = players.map((p) => feeAmount(fee, b.holes, dt, p.typeId) ?? 0);
+      if (each.reduce((s, a) => s + a, 0) === l.amount) each.forEach((a, i) => put(i, { label, amount: a, unit: null }));
+      else share(label, l.amount);
+    } else if (per === 'cart' || per === 'guest' || per === 'booking') {
+      const qty = Math.max(1, per === 'booking' ? 1 : l.qty);
+      const unit = Math.floor(l.amount / qty);
+      for (let u = 0; u < qty; u++) {
+        const amount = u === qty - 1 ? l.amount - unit * (qty - 1) : unit;
+        const who = per === 'cart' ? u * seats : 0;
+        put(who, { label: per === 'cart' && qty > 1 ? `${label}, cart ${u + 1}` : per === 'guest' && qty > 1 ? `${label}, guest ${u + 1}` : label, amount, unit: `${l.key}#${u}` });
+      }
+    } else share(label, l.amount);
+  }
+  return out;
+}

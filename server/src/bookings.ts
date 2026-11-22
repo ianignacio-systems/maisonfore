@@ -6,6 +6,7 @@ import {
 } from '@maison/engine';
 import { day, int, minutes, mobile, oneOf, text } from './check';
 import { CAN, loadSetup, roleAt } from './courses';
+import { openPassports } from './passports';
 
 export const BOOKING_COLS = `id, ref, layout_id, start_tee, day, time_min, players, status, channel, hold_expires_at, golfer_account, contact_name, mobile, email, notes,
   amount, pay_status, paid_amount, paid_method, paid_ref, cancel_reason, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, special, pay_due_by`;
@@ -175,7 +176,10 @@ export async function createBooking(db: Db, c: Caller, courseId: string, input: 
   const setup = await loadSetup(db, courseId);
   const names = playerNamesOf(setup, input, w.players, contactName);
   const pick = pickOf(setup, input, w.players);
-  const payNow = !hold && mustPayNow(setup, { ...w, channel }, now);
+  // Paying after playing, nobody pays on the spot: a same-day walk-in registers right away instead, and a
+  // booking made after its register-by time must register before teeing off.
+  const after = setup.rules.payWhen === 'after';
+  const payNow = !hold && !after && mustPayNow(setup, { ...w, channel }, now);
   const held = hold || payNow;
   return db.tx(async (q) => {
     await lockSlot(q, courseId, w.layoutId, w.startTee, w.day, w.time);
@@ -184,7 +188,7 @@ export async function createBooking(db: Db, c: Caller, courseId: string, input: 
     const each = greenFees(setup, w, price, pick.types);
     const id = newId();
     const ref = await insertRef(q, courseId);
-    const payDueBy = held ? null : payDeadline(setup, { ...w, channel }, now);
+    const payDueBy = held ? null : after ? dueByNow(setup, { ...w, channel }, now, now) : payDeadline(setup, { ...w, channel }, now);
     await q.query(
       `insert into bookings (business_id, id, ref, layout_id, start_tee, day, time_min, players, status, channel, hold_expires_at, contact_name, mobile, email, notes,
         amount, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, pay_due_by)
@@ -247,7 +251,10 @@ export async function changeStatus(db: Db, c: Caller, courseId: string, id: stri
     if (!canChange(b.status, to)) throw new UserError(`A booking that is ${STATUS_WORDS[b.status].toLowerCase()} can’t be changed to ${STATUS_WORDS[to].toLowerCase()}.`);
     if (to === 'no_show' && teeMoment(setup, b) > now) throw new UserError('You can mark a no-show once the tee time has passed.');
     if (to === 'checked_in' && isPencil(b, now)) throw new UserError('This is now a pencil booking: its time to pay ran out. Record the payment first.');
-    if (to === 'checked_in' && !paidForCheckIn(b)) throw new UserError('This booking isn’t paid yet. Record the payment first, then check the golfers in.');
+    if (to === 'checked_in' && !paidForCheckIn(b, setup.rules.payWhen)) throw new UserError('This booking isn’t paid yet. Record the payment first, then check the golfers in.');
+    // Paying after playing: checking in is registering, and the round can't finish until every passport is settled.
+    if (to === 'checked_in' && setup.rules.payWhen === 'after') { await pencilBack(q, courseId, b, now, 'register them'); await openPassports(q, courseId, b, c.email, now); }
+    if (to === 'played' && setup.rules.payWhen === 'after' && b.payStatus !== 'paid_course') throw new UserError('Settle the passports first: the round can be finished once every player has paid.');
     if (to === 'cancelled' && !reason) throw new UserError('Add a reason for cancelling.');
     await q.query('update bookings set status = $3, hold_expires_at = null, cancel_reason = $4, updated_at = $5 where business_id = $1 and id = $2',
       [courseId, id, to, to === 'cancelled' ? reason : b.cancelReason, now]);
@@ -319,6 +326,16 @@ export async function editBooking(db: Db, c: Caller, courseId: string, id: strin
   });
 }
 
+/** A pencil booking can take its time back (paid, or registered) only if the time still has room for it. */
+export async function pencilBack(q: Db, courseId: string, b: BookingRow, now: number, then: string) {
+  if (!isPencil(b, now) || b.special) return;
+  const setup = await loadSetup(q, courseId);
+  await lockSlot(q, courseId, b.layoutId, b.startTee, b.day, b.time);
+  const sheet = buildSheet(setup, { layoutId: b.layoutId, day: b.day, bookings: await dayBookings(q, courseId, b.day, b.layoutId), blocks: await dayBlocks(q, courseId, b.day), now, audience: 'staff' });
+  const slot = sheet.find((s) => s.startTee === b.startTee && s.time === b.time);
+  if (!slot || slot.free < b.players) throw new UserError(`Someone else has booked ${formatTime(b.time)} since this became a pencil booking. Move it to another time first, then ${then}.`);
+}
+
 /** Payment taken at the counter for walk-ins and phone bookings (PTR-8). It goes straight to the course: no booking fee. */
 export async function recordPayment(db: Db, c: Caller, courseId: string, id: string, input: Record<string, unknown>, now = Date.now()): Promise<BookingRow> {
   await roleAt(db, c, courseId, CAN.daily);
@@ -329,16 +346,11 @@ export async function recordPayment(db: Db, c: Caller, courseId: string, id: str
   return db.tx(async (q) => {
     const b = await lockBooking(q, courseId, id);
     if (b.payStatus === 'paid_online') throw new UserError('This booking was already paid in the app.');
+    if (b.status === 'checked_in' && (await loadSetup(q, courseId)).rules.payWhen === 'after') throw new UserError('This group has registered: settle their passports instead.');
     if (b.status === 'cancelled' || b.status === 'expired') throw new UserError('This booking is not active.');
     if (b.status === 'held' && b.holdExpiresAt !== null && b.holdExpiresAt <= now) throw new UserError('This hold ran out and the time was released. Make the booking again.');
-    if (isPencil(b, now) && !b.special) {
-      // Paying a pencil booking puts it back on its time, if the time still has room for it.
-      const setup = await loadSetup(q, courseId);
-      await lockSlot(q, courseId, b.layoutId, b.startTee, b.day, b.time);
-      const sheet = buildSheet(setup, { layoutId: b.layoutId, day: b.day, bookings: await dayBookings(q, courseId, b.day, b.layoutId), blocks: await dayBlocks(q, courseId, b.day), now, audience: 'staff' });
-      const slot = sheet.find((s) => s.startTee === b.startTee && s.time === b.time);
-      if (!slot || slot.free < b.players) throw new UserError(`Someone else has booked ${formatTime(b.time)} since this became a pencil booking. Move it to another time first, then record the payment.`);
-    }
+    // Paying a pencil booking puts it back on its time, if the time still has room for it.
+    await pencilBack(q, courseId, b, now, 'record the payment');
     await q.query("update bookings set pay_status = 'paid_course', paid_amount = $3, paid_method = $4, paid_ref = $5, updated_at = $6, pay_due_by = null where business_id = $1 and id = $2",
       [courseId, id, amount, method, ref, now]);
     // Paying a booking held for payment (pay now, or a waitlist offer) confirms it.

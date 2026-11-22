@@ -59,6 +59,13 @@ export interface MyBooking {
   roster: { name: string; type: string }[]; upcoming: boolean; canChange: boolean; cutoffHours: number;
   /** Unpaid: arrive and pay by this time (the course's clock), on payByDay. lapsed = not paid in time, open to others. */
   payDueBy: number | null; payBy: string | null; payByDay: string | null; lapsed: boolean;
+  /** 'after': the club has golfers register on arrival and settle after the round; `passports` once registered. */
+  payWhen: 'before' | 'after'; passports: GolferPassports | null;
+}
+export interface GolferPassports {
+  total: number; paid: number; balance: number; settled: boolean;
+  players: { n: number; name: string; type: string; total: number; paid: number; balance: number; lines: { label: string; amount: number }[];
+    charges: { id: string; label: string; qty: number; amount: number; teeHouse: string; at: number }[] }[];
 }
 
 /** Waiting for a time at a course on a day; `offer` is a time held for the golfer to book before `until`. */

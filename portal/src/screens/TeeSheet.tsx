@@ -74,7 +74,7 @@ export function TeeSheet({ courseId, setup, courseName, readOnly, canSpecial, in
       ) : null}
       </div>
       {!layout ? <p className="fore-empty">No tee time is set up yet. Add it in Settings.</p>
-        : view === 'day' ? <DayView key={`${day}-${layout.id}`} courseId={courseId} setup={setup} day={day} today={today} layoutId={layout.id} readOnly={readOnly} canSpecial={canSpecial} page={page} />
+        : view === 'day' ? <DayView key={`${day}-${layout.id}`} courseId={courseId} courseName={courseName} setup={setup} day={day} today={today} layoutId={layout.id} readOnly={readOnly} canSpecial={canSpecial} page={page} />
           : <WeekView key={`${weekStart}-${layout.id}`} courseId={courseId} weekStart={weekStart} today={today} layoutId={layout.id} onOpen={(d) => { setDay(d); pick('day'); }} onSwipe={(dir) => setDay(addDays(day, dir * 7))} />}
     </div>
   );
@@ -82,8 +82,8 @@ export function TeeSheet({ courseId, setup, courseName, readOnly, canSpecial, in
 
 // ---------------------------------------------------------------- day
 
-function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, page }: {
-  courseId: string; setup: CourseSetup; day: string; today: string; layoutId: string; readOnly?: boolean; canSpecial?: boolean; page: React.RefObject<HTMLDivElement | null>;
+function DayView({ courseId, courseName, setup, day, today, layoutId, readOnly, canSpecial, page }: {
+  courseId: string; courseName: string; setup: CourseSetup; day: string; today: string; layoutId: string; readOnly?: boolean; canSpecial?: boolean; page: React.RefObject<HTMLDivElement | null>;
 }) {
   const summary = useStuckHeight(page, '--sum-h');
   const [onlyOpen, setOnlyOpen] = useState(() => { try { return localStorage.getItem('fore.onlyOpen') === '1'; } catch { return false; } });
@@ -208,7 +208,7 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
                 <div className="fore-time"><span>{formatTime(time).replace(/ (AM|PM)$/, '')}</span><small>{time < 720 ? 'am' : 'pm'}</small></div>
                 {cells.map((c) => (onlyOpen && !bookableSlot(c)
                   ? <div key={c.startTee} className="fore-flight s-hidden" aria-hidden />
-                  : <Flight key={c.startTee} c={c} tz={setup.timeZone} onAdd={readOnly ? undefined : setAdding} onOpen={setOpen} />))}
+                  : <Flight key={c.startTee} c={c} tz={setup.timeZone} after={setup.rules.payWhen === 'after'} onAdd={readOnly ? undefined : setAdding} onOpen={setOpen} />))}
               </div>
             );
           })}
@@ -220,13 +220,13 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
       {seat ? <NewBooking courseId={courseId} cell={seat.cell} setup={setup} prefill={{ contactName: seat.w.contactName, mobile: seat.w.mobile, notes: seat.w.notes, players: seat.w.players, standbyId: seat.w.id }}
         onClose={() => setSeat(null)} onDone={(made) => { after(); if (made) { setOpen(made); setJustMade(true); } }} /> : null}
       {adding ? <NewBooking courseId={courseId} cell={adding} setup={setup} onClose={() => setAdding(null)} onDone={(made) => { after(); if (made) { setOpen(made); setJustMade(true); } }} /> : null}
-      {open ? <BookingPanel key={open.id} courseId={courseId} b={open} setup={setup} readOnly={readOnly} justMade={justMade} onClose={() => { setOpen(null); setJustMade(false); }} onDone={() => { setJustMade(false); after(); }} /> : null}
+      {open ? <BookingPanel key={open.id} courseId={courseId} courseName={courseName} b={open} setup={setup} readOnly={readOnly} justMade={justMade} onClose={() => { setOpen(null); setJustMade(false); }} onDone={() => { setJustMade(false); after(); }} /> : null}
       {holding && L ? <HoldClose courseId={courseId} day={day} tees={tees} layoutId={L.layout.id} firstTee={times[0]} lastTee={times.at(-1)} onClose={() => setHolding(false)} onDone={after} /> : null}
     </>
   );
 }
 
-function Flight({ c, tz, onAdd, onOpen }: { c: StaffSlot; tz: string; onAdd?: (c: StaffSlot) => void; onOpen: (b: StaffBooking) => void }) {
+function Flight({ c, tz, after, onAdd, onOpen }: { c: StaffSlot; tz: string; after?: boolean; onAdd?: (c: StaffSlot) => void; onOpen: (b: StaffBooking) => void }) {
   const bookable = !!onAdd && c.state !== 'past' && c.state !== 'closed' && c.free > 0;
   const now = Date.now();
   return (
@@ -235,7 +235,7 @@ function Flight({ c, tz, onAdd, onOpen }: { c: StaffSlot; tz: string; onAdd?: (c
       <div className="fore-who">
         {c.bookings.map((b) => {
           const pencil = isPencil(b, now);
-          const note = chipNote(b, now, tz);
+          const note = chipNote(b, now, tz, after);
           return (
             <button key={b.id} className={`fore-golfer b-${pencil ? 'pencil' : b.status}${note?.soon ? ' due-soon' : ''}`} onClick={() => onOpen(b)}>
               <span className="n">{b.contactName}</span>
@@ -252,15 +252,17 @@ function Flight({ c, tz, onAdd, onOpen }: { c: StaffSlot; tz: string; onAdd?: (c
 }
 
 /** The few words on a booking's chip: pencil, a hold's end, or when an unpaid booking must pay by. */
-function chipNote(b: StaffBooking, now: number, tz: string): { text: string; soon?: boolean } | null {
+function chipNote(b: StaffBooking, now: number, tz: string, after = false): { text: string; soon?: boolean } | null {
   const clock = (ms: number) => formatTime(localParts(ms, tz).minutes).replace(/ (AM|PM)$/, (m) => m.toLowerCase().replace(' ', ''));
   if (isPencil(b, now)) return { text: 'Pencil' };
   if (b.status === 'held' && b.holdExpiresAt) return { text: b.createdBy === 'waitlist' ? `Waitlist offer to ${clock(b.holdExpiresAt)}` : `Pay by ${clock(b.holdExpiresAt)}`, soon: true };
   if (b.status === 'confirmed' && b.payStatus === 'unpaid' && b.payDueBy) {
     const left = b.payDueBy - now;
-    if (left < 3_600_000) return { text: `Pay in ${Math.max(1, Math.ceil(left / 60_000))} min`, soon: true };
-    return { text: localParts(b.payDueBy, tz).day === b.day ? `Pay by ${clock(b.payDueBy)}` : 'Unpaid' };
+    const verb = after ? 'Register' : 'Pay';
+    if (left < 3_600_000) return { text: `${verb} in ${Math.max(1, Math.ceil(left / 60_000))} min`, soon: true };
+    return { text: localParts(b.payDueBy, tz).day === b.day ? `${verb} by ${clock(b.payDueBy)}` : after ? 'Not registered' : 'Unpaid' };
   }
+  if (after && b.status === 'checked_in') return { text: b.payStatus === 'unpaid' ? 'Playing' : 'Settled' };
   return b.status !== 'confirmed' ? { text: STATUS_WORDS[b.status] } : null;
 }
 

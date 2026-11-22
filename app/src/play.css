@@ -312,3 +312,16 @@ a { color: var(--bentgrass); font-weight: 600; }
 .pl-alerts small { color: var(--muted); font-size: 13px; }
 .pl-alerts > p { flex-basis: 100%; }
 .pl-sheet-body > .pl-alerts { padding: 14px 16px; border-radius: var(--r); background: var(--surface); box-shadow: var(--lift); }
+
+/* ------------------------------------------------------------ passports (registered, paying after the round) */
+.pl-passports { display: flex; flex-direction: column; gap: 10px; }
+.pl-pp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 14px 16px; border-radius: var(--r); background: var(--night); color: #fff; }
+.pl-pp-head span { color: var(--flag-2); font-weight: 700; font-size: 14px; }
+.pl-pp { padding: 12px 16px; border-radius: var(--r); background: var(--surface); box-shadow: var(--lift); }
+.pl-pp.settled { opacity: 0.75; }
+.pl-pp-top { display: flex; justify-content: space-between; font-size: 16px; padding-bottom: 6px; }
+.pl-pp-top span { font-weight: 800; }
+.pl-pp-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid #edf1ee; font-size: 14px; }
+.pl-pp-row span:first-child { display: flex; flex-direction: column; }
+.pl-pp-row small { color: var(--muted); font-size: 12px; }
+.pl-pp-row.fb span:first-child { color: var(--flag-ink); }

@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { AuthError, ensureAccount, Forbidden, NotFound, syncAdminEmails, UserError, type Caller, type Db, type VerifyToken } from '@maison/core';
 import { overview } from './overview';
 import { coursePage, courseTimes, findCourses, golferBook, golferCancel, golferMove, golferProfile, myBookings, saveProfile } from './golf';
+import { addCharges, getPassports, listTeeHouses, markRemitted, movePassportLine, registerBooking, saveTeeHouses, settlePassports, teeHouseDay, teeHouseReport, voidCharge } from './passports';
 import { dropPushSub, myMessages, pushKey, readMessages, savePushSub } from './notify';
 import { servePortal } from './portal';
 import { addStandby, dayWaiting, joinWaitlist, leaveWaitlist, myWaitlist, removeWaiting } from './waitlist';
@@ -27,7 +28,7 @@ export interface AppOptions {
   appDir?: string;
 }
 
-type P = { Params: { id: string; bid: string; slug: string; wid: string }; Body: Record<string, unknown>; Querystring: Record<string, string> };
+type P = { Params: { id: string; bid: string; slug: string; wid: string; cid: string }; Body: Record<string, unknown>; Querystring: Record<string, string> };
 
 /** The MaisonFore API (/api/v1). Every course call checks that the caller belongs to the course and that their role allows it. */
 export function buildApp(o: AppOptions): FastifyInstance {
@@ -79,6 +80,11 @@ export function buildApp(o: AppOptions): FastifyInstance {
   app.get<P>('/api/v1/courses/:id', async (req) => {
     const c = await signedIn(req);
     const role = await roleAt(db, c, req.params.id);
+    // Tee house staff get only what their tee house screen needs.
+    if (role === 'teehouse') {
+      const course = await getCourse(db, req.params.id);
+      return { course: { id: course.id, name: course.name, slug: course.slug, status: course.status, timeZone: course.timeZone }, role };
+    }
     const holidays = await db.query<{ day: string; name: string }>('select day, name from holidays where business_id = $1', [req.params.id]);
     return {
       course: await getCourse(db, req.params.id), role, setup: await loadSetup(db, req.params.id), readiness: await readiness(db, req.params.id),
@@ -127,6 +133,18 @@ export function buildApp(o: AppOptions): FastifyInstance {
   app.get<P>('/api/v1/courses/:id/sheet', async (req) => staffSheet(db, await signedIn(req), req.params.id, req.query, now()));
   app.post<P>('/api/v1/courses/:id/bookings', async (req) => createBooking(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
   app.post<P>('/api/v1/courses/:id/specials', async (req) => createSpecial(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
+  // Paying after playing: registration, passports, settling; tee houses, their orders and what the club owes them.
+  app.get<P>('/api/v1/courses/:id/bookings/:bid/passports', async (req) => getPassports(db, await signedIn(req), req.params.id, req.params.bid));
+  app.post<P>('/api/v1/courses/:id/bookings/:bid/register', async (req) => registerBooking(db, await signedIn(req), req.params.id, req.params.bid, req.body ?? {}, now()));
+  app.post<P>('/api/v1/courses/:id/bookings/:bid/settle', async (req) => settlePassports(db, await signedIn(req), req.params.id, req.params.bid, req.body ?? {}, now()));
+  app.post<P>('/api/v1/courses/:id/bookings/:bid/passport-move', async (req) => movePassportLine(db, await signedIn(req), req.params.id, req.params.bid, req.body ?? {}, now()));
+  app.get<P>('/api/v1/courses/:id/teehouses', async (req) => listTeeHouses(db, await signedIn(req), req.params.id));
+  app.put<P>('/api/v1/courses/:id/teehouses', async (req) => saveTeeHouses(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
+  app.get<P>('/api/v1/courses/:id/teehouse', async (req) => teeHouseDay(db, await signedIn(req), req.params.id, now()));
+  app.post<P>('/api/v1/courses/:id/teehouse/charges', async (req) => addCharges(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
+  app.post<P>('/api/v1/courses/:id/teehouse/charges/:cid/void', async (req) => voidCharge(db, await signedIn(req), req.params.id, req.params.cid, req.body ?? {}, now()));
+  app.get<P>('/api/v1/courses/:id/teehouse-report', async (req) => teeHouseReport(db, await signedIn(req), req.params.id, req.query, now()));
+  app.post<P>('/api/v1/courses/:id/teehouse-remits', async (req) => markRemitted(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
   // Who's waiting for a time: the counter's standby list and the app waitlist.
   app.get<P>('/api/v1/courses/:id/waiting', async (req) => { await roleAt(db, await signedIn(req), req.params.id, CAN.view); return dayWaiting(db, req.params.id, String(req.query.day ?? '')); });
   app.post<P>('/api/v1/courses/:id/standby', async (req) => addStandby(db, await signedIn(req), req.params.id, req.body ?? {}, now()));

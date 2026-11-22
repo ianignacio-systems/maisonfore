@@ -9,6 +9,7 @@ import {
 } from './bookings';
 import { day as dayOf, mobile, oneOf, text } from './check';
 import { getCourse, loadSetup } from './courses';
+import { passportsOf } from './passports';
 import { newId } from '@maison/core';
 
 /**
@@ -228,7 +229,10 @@ export async function myBookings(db: Db, c: Caller, now = Date.now()) {
       course: { slug: r.course_slug as string, name: r.course_name as string, phone: r.course_phone as string },
       layoutName: s.layouts.length > 1 ? s.layouts.find((l) => l.id === b.layoutId)?.name ?? '' : '', startTee: b.startTee,
       roster: names.map((p) => ({ name: p.name, type: s.playerTypes.find((t) => t.id === p.player_type_id)?.name ?? '' })),
-      upcoming: b.day >= today && (b.status === 'confirmed' || b.status === 'held'),
+      upcoming: b.day >= today && (b.status === 'confirmed' || b.status === 'held' || (b.status === 'checked_in' && b.day === today)),
+      payWhen: s.rules.payWhen,
+      // Registered (paying after playing): each player's running passport, food and drinks included.
+      passports: s.rules.payWhen === 'after' && (b.status === 'checked_in' || b.status === 'played') ? await passportsOf(db, s, courseId, b) : null,
       canChange: golferCanChange(s, b, now), cutoffHours: s.rules.cancelCutoffHours,
       // Pay by (shown in the course's time), and whether that has passed without payment.
       payDueBy: b.payStatus === 'unpaid' ? b.payDueBy : null, payBy: b.payStatus === 'unpaid' && b.payDueBy ? formatTime(localParts(b.payDueBy, s.timeZone).minutes) : null,

@@ -26,7 +26,8 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   return data as T;
 }
 
-export type Role = 'owner' | 'manager' | 'starter' | 'viewer';
+export interface TeeHouseSetup { id: string; name: string; concessionaire: string; sharePercent: number; rentAmount: number; rentNote: string; receipts: 'club' | 'tee_house'; active: boolean; items: { id: string; name: string; price: number; active: boolean }[] }
+export type Role = 'owner' | 'manager' | 'starter' | 'viewer' | 'teehouse';
 export type CourseStatus = 'draft' | 'review' | 'live' | 'paused' | 'declined';
 export interface Me { account: { id: string; email: string }; courses: { id: string; name: string; slug: string; role: Role; status: CourseStatus }[]; admin: boolean }
 export interface Course {

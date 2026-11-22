@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Area, Btn, Check, Field, Seg, Select } from '@maison/core/ui/kit';
 import {
   formatTime, localParts, type BookingRules, type CourseOptions, type Fee, type FeeAmount, type Layout, type PaidTo, type PlayerType, type Rate, type SheetSettings,
 } from '@maison/engine';
-import { api, type CourseData } from '../api';
+import { api, type CourseData, type TeeHouseSetup } from '../api';
 
 const toTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const toMin = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
@@ -13,11 +13,12 @@ const isAmount = (s: string) => s.trim() !== '' && Number.isFinite(Number(s.repl
 const key = () => `n${Math.random().toString(36).slice(2, 12)}`;
 const DAY_LETTERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-type Pane = 'course' | 'teetimes' | 'players' | 'fees' | 'rules' | 'holidays';
+type Pane = 'course' | 'teetimes' | 'players' | 'fees' | 'teehouses' | 'rules' | 'holidays';
 const PANES: { id: Pane; label: string; sub: string }[] = [
   { id: 'teetimes', label: 'Courses and tee time', sub: 'Each course (9 or 18 holes), its tee time settings and interval' },
   { id: 'players', label: 'Players and green fees', sub: 'Local, foreign, senior… 9 and 18 holes' },
   { id: 'fees', label: 'Carts, caddies and fees', sub: 'Golf cart, caddie, insurance, rentals and more' },
+  { id: 'teehouses', label: 'Tee houses', sub: 'Food and drinks on the course, charged to passports' },
   { id: 'rules', label: 'Booking rules', sub: 'How far ahead, cancelling, paying, the waitlist' },
   { id: 'holidays', label: 'Holidays', sub: 'Days that use holiday rates' },
   { id: 'course', label: 'Course page', sub: 'What golfers see in the app' },
@@ -43,6 +44,7 @@ export function Settings({ data, reload }: { data: CourseData; reload: () => Pro
         {pane === 'teetimes' ? <TeeTimesPane {...props} /> : null}
         {pane === 'players' ? <PlayersPane {...props} /> : null}
         {pane === 'fees' ? <FeesPane {...props} /> : null}
+        {pane === 'teehouses' ? <TeeHousesPane {...props} /> : null}
         {pane === 'rules' ? <RulesPane {...props} /> : null}
         {pane === 'holidays' ? <HolidaysPane {...props} /> : null}
       </div>
@@ -455,15 +457,84 @@ function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<v
       </div>
       <h3 className="fore-set-sub">Paying, and the waitlist</h3>
       <div className="fore-panel flush">
-        {item('Pay by', 'For phone, Viber and walk-in bookings for a later day, and app golfers paying at the counter. Not paid in time: it becomes a pencil booking and the tee time opens to others and to the waitlist.',
+        {item('Golfers pay', 'Before playing: at the counter before teeing off; check-in waits for payment. After playing: golfers register on arrival and get a passport each; tee houses add food and drinks; they settle at the counter after the round. Caddie fees stay separate either way.',
+          <Seg value={f.payWhen === 'after' ? 'after' : 'before'} onChange={(v) => setF({ ...f, payWhen: v === 'after' ? 'after' : 'before' })} options={[{ value: 'before', label: 'Before playing' }, { value: 'after', label: 'After playing' }]} />)}
+        {item(f.payWhen === 'after' ? 'Register by' : 'Pay by', f.payWhen === 'after' ? 'Golfers must arrive and register this long before their tee time (phone, Viber, walk-ins for a later day, and app bookings). Not registered in time: it becomes a pencil booking and the tee time opens to others and to the waitlist.' : 'For phone, Viber and walk-in bookings for a later day, and app golfers paying at the counter. Not paid in time: it becomes a pencil booking and the tee time opens to others and to the waitlist.',
           <Select aria-label="Pay by" value={f.payBeforeMinutes === null || f.payBeforeMinutes === undefined ? '' : String(f.payBeforeMinutes)} onChange={(v) => setF({ ...f, payBeforeMinutes: v === '' ? null : Number(v) })} options={PAY_BEFORE} />)}
         {item('…and within', 'Optional: also within some days of booking, whichever comes first. Stops a far-off tee time being held unpaid until the last minute.',
           <Select aria-label="Pay within" value={f.payWithinDays === null || f.payWithinDays === undefined ? '' : String(f.payWithinDays)} onChange={(v) => setF({ ...f, payWithinDays: v === '' ? null : Number(v) })} options={PAY_WITHIN} />)}
-        {item('Pay-now window', 'Same-day walk-ins pay at the counter right away; so do bookings made after their pay deadline. Their tee time is held this many minutes while they pay, then released. Staff holds last this long too.', <Field label="Minutes" inputMode="numeric" value={String(f.holdMinutes)} onChange={num('holdMinutes')} sm />)}
+        {f.payWhen === 'after' ? null : item('Pay-now window', 'Same-day walk-ins pay at the counter right away; so do bookings made after their pay deadline. Their tee time is held this many minutes while they pay, then released. Staff holds last this long too.', <Field label="Minutes" inputMode="numeric" value={String(f.holdMinutes)} onChange={num('holdMinutes')} sm />)}
+        {f.payWhen === 'after' ? item('Hold time', 'How long a staff hold keeps a tee time before it’s released.', <Field label="Minutes" inputMode="numeric" value={String(f.holdMinutes)} onChange={num('holdMinutes')} sm />) : null}
         {item('Waitlist: time to claim', 'When a tee time opens, the first golfer on the app waitlist has this long to book it before it goes to the next. Under an hour before the tee time, everyone waiting is told at once.',
           <Select aria-label="Time to claim" value={String(f.waitlistClaimMinutes ?? 15)} onChange={(v) => setF({ ...f, waitlistClaimMinutes: Number(v) })} options={CLAIM} />)}
       </div>
       <SaveBar label="Save booking rules" busy={busy} msg={msg} onSave={() => void run([[`/courses/${data.course.id}/rules`, { ...f, releaseTime: toMin(f.releaseTimeText) }]])} />
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------- tee houses
+
+interface HouseForm { id: string; name: string; concessionaire: string; sharePercent: string; rent: string; rentNote: string; receipts: 'club' | 'tee_house'; active: boolean; items: { id: string; name: string; price: string }[] }
+const HOUSE_IDEAS = ['Halfway house', 'Hole 5 tee house', 'Hole 9 tee house', 'Hole 14 tee house'];
+
+/** Tee houses: who runs each one, what the club keeps, who issues receipts, and their menu for quick charging. */
+function TeeHousesPane({ data }: { data: CourseData; reload: () => Promise<void> }) {
+  const [list, setList] = useState<HouseForm[] | null>(null);
+  const [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fromServer = (r: TeeHouseSetup[]) => r.map((h) => ({ id: h.id, name: h.name, concessionaire: h.concessionaire, sharePercent: String(h.sharePercent), rent: toPeso(h.rentAmount), rentNote: h.rentNote,
+    receipts: h.receipts, active: h.active, items: h.items.filter((i) => i.active).map((i) => ({ id: i.id, name: i.name, price: toPeso(i.price) })) }));
+  useEffect(() => { void api<TeeHouseSetup[]>(`/courses/${data.course.id}/teehouses`).then((r) => setList(fromServer(r))).catch((e) => setMsg({ text: (e as Error).message })); }, [data.course.id]);
+  if (!list) return <section><PaneHead title="Tee houses" sub="Loading…" /></section>;
+  const upd = (i: number, p: Partial<HouseForm>) => setList(list.map((h, j) => (j === i ? { ...h, ...p } : h)));
+  const add = (name = '') => setList([...list, { id: '', name, concessionaire: '', sharePercent: '0', rent: '', rentNote: '', receipts: 'club', active: true, items: [{ id: '', name: '', price: '' }] }]);
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await api<TeeHouseSetup[]>(`/courses/${data.course.id}/teehouses`, { method: 'PUT', body: { teeHouses: list.map((h) => ({
+        id: h.id || undefined, name: h.name, concessionaire: h.concessionaire, sharePercent: Number(h.sharePercent || 0), rentAmount: isAmount(h.rent) ? toCentavos(h.rent) : 0, rentNote: h.rentNote,
+        receipts: h.receipts, active: h.active, items: h.items.filter((it) => it.name.trim()).map((it) => ({ id: it.id || undefined, name: it.name, price: isAmount(it.price) ? toCentavos(it.price) : 0 })),
+      })) } });
+      setList(fromServer(r)); setMsg({ text: 'Saved.', ok: true });
+    } catch (e) { setMsg({ text: (e as Error).message }); } finally { setBusy(false); }
+  };
+  return (
+    <section>
+      <PaneHead title="Tee houses" sub="Food and drink stops on the course. Their staff charge orders to each player’s passport from a phone; golfers settle everything at the counter after the round, and the club remits what’s due to each tee house. Used when golfers pay after playing (Booking rules)." />
+      {data.setup.rules.payWhen !== 'after' ? <p className="fore-note">Golfers at your course pay before playing, so there are no passports to charge yet. Switch to “After playing” in Booking rules to use tee houses.</p> : null}
+      {list.map((h, i) => (
+        <div key={h.id || `new${i}`} className={`fore-panel fore-house${h.active ? '' : ' off'}`}>
+          <div className="grid fore-2">
+            <Field label="Name" value={h.name} onChange={(v) => upd(i, { name: v })} placeholder="e.g. Hole 5 tee house" />
+            <Field label="Run by (concessionaire)" value={h.concessionaire} onChange={(v) => upd(i, { concessionaire: v })} placeholder="Owner’s name, or leave empty if the club runs it" />
+          </div>
+          <div className="fore-house-terms">
+            <Field label="Club’s share of sales (%)" inputMode="decimal" value={h.sharePercent} onChange={(v) => upd(i, { sharePercent: v.replace(/[^\d.]/g, '') })} sm hint="0 if the club keeps nothing" />
+            <label className="fore-money-field"><span>Rent (₱, for the record)</span><Money label={`${h.name} rent`} value={h.rent} onChange={(v) => upd(i, { rent: v })} /></label>
+            <Field label="Rent note" value={h.rentNote} onChange={(v) => upd(i, { rentNote: v })} placeholder="e.g. a month, billed separately" sm />
+            <div className="fore-inline"><span className="fore-lbl">Receipts issued by</span><Seg value={h.receipts} onChange={(v) => upd(i, { receipts: v === 'tee_house' ? 'tee_house' : 'club' })} options={[{ value: 'club', label: 'The club' }, { value: 'tee_house', label: 'The tee house' }]} /></div>
+          </div>
+          <div className="fore-house-menu">
+            <b>Menu</b><span className="muted small">Optional: staff tap these to charge quickly, or type any item and price.</span>
+            {h.items.map((it, j) => (
+              <div key={it.id || `i${j}`} className="fore-house-item">
+                <input className="input" aria-label="Item" placeholder="e.g. Iced tea" value={it.name} onChange={(e) => upd(i, { items: h.items.map((x, k) => (k === j ? { ...x, name: e.target.value } : x)) })} />
+                <Money label={`${it.name || 'Item'} price`} value={it.price} onChange={(v) => upd(i, { items: h.items.map((x, k) => (k === j ? { ...x, price: v } : x)) })} />
+                <button className="fore-remove" onClick={() => upd(i, { items: h.items.filter((_, k) => k !== j) })}>Remove</button>
+              </div>
+            ))}
+            <Btn size="sm" onClick={() => upd(i, { items: [...h.items, { id: '', name: '', price: '' }] })}>Add an item</Btn>
+          </div>
+          <div className="row"><Check label="Open" value={h.active} onChange={(v) => upd(i, { active: v })} /><button className="fore-remove" onClick={() => setList(list.filter((_, j) => j !== i))}>Remove tee house</button></div>
+        </div>
+      ))}
+      <div className="fore-ideas">
+        <Btn size="sm" onClick={() => add()}>Add a tee house</Btn>
+        {HOUSE_IDEAS.filter((n) => !list.some((h) => h.name.toLowerCase() === n.toLowerCase())).map((n) => <button key={n} className="fore-idea" onClick={() => add(n)}>+ {n}</button>)}
+      </div>
+      <p className="muted small">Give tee house staff the “Tee house” role under Staff. They sign in on their phone and see only their tee house: the groups on the course, their menu and their own orders.</p>
+      <SaveBar label="Save tee houses" busy={busy} msg={msg} onSave={() => void save()} />
     </section>
   );
 }

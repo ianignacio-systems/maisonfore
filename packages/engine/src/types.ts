@@ -110,6 +110,12 @@ export interface BookingRules {
   payWithinDays: number | null;
   /** Minutes the first golfer on the waitlist has to claim a time that opened, before it goes to the next. */
   waitlistClaimMinutes: number;
+  /**
+   * When golfers pay. 'before': at the counter before teeing off (check-in waits for payment). 'after': they
+   * register on arrival (each player gets a passport), charges such as tee-house food and drinks are added
+   * during the round, and they settle at the counter after playing. The pay deadline then means "register by".
+   */
+  payWhen: 'before' | 'after';
 }
 
 export type BlockKind = 'walkin' | 'regulars' | 'event' | 'maintenance' | 'weather' | 'members';
@@ -264,4 +270,5 @@ export const DEFAULT_RULES: BookingRules = {
   payBeforeMinutes: null,
   payWithinDays: null,
   waitlistClaimMinutes: 15,
+  payWhen: 'before',
 };

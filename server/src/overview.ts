@@ -2,6 +2,7 @@ import type { Caller, Db } from '@maison/core';
 import { addDays, buildSheet, dueWithBooking, isPencil, localParts, takesSlot } from '@maison/engine';
 import { BOOKING_COLS, bookingOf, daySummary, type BookingRow } from './bookings';
 import { CAN, loadSetup, roleAt } from './courses';
+import { unsettledGroups } from './passports';
 
 /** What the counter collects: app bookings paid on arrival include the counter fees (never the caddie's). */
 const collectable = (b: BookingRow) => dueWithBooking(b);
@@ -39,7 +40,13 @@ export async function overview(db: Db, c: Caller, courseId: string, now = Date.n
 
   // Needs attention
   const attention: { kind: string; text: string; day: string }[] = [];
-  const unpaidPlayed = rows.filter((b) => b.day >= addDays(today, -7) && b.day <= today && (b.status === 'played' || b.status === 'checked_in') && b.payStatus === 'unpaid');
+  // Paying after playing: groups on the course are expected to be unpaid; flag those who teed off over 5 hours ago.
+  const unsettled = await unsettledGroups(db, courseId, setup, now);
+  if (unsettled.length) {
+    attention.push({ kind: 'unpaid', day: unsettled[0].day,
+      text: `${unsettled.length} ${unsettled.length === 1 ? 'group' : 'groups'} teed off over 5 hours ago and ${unsettled.length === 1 ? 'hasn’t' : 'haven’t'} settled their passports: ${unsettled.slice(0, 3).map((u) => u.label).join(', ')}${unsettled.length > 3 ? '…' : ''}.` });
+  }
+  const unpaidPlayed = setup.rules.payWhen === 'after' ? [] : rows.filter((b) => b.day >= addDays(today, -7) && b.day <= today && (b.status === 'played' || b.status === 'checked_in') && b.payStatus === 'unpaid');
   if (unpaidPlayed.length) {
     attention.push({ kind: 'unpaid', day: unpaidPlayed[0].day,
       text: `${unpaidPlayed.length} ${unpaidPlayed.length === 1 ? 'round' : 'rounds'} played in the last 7 days with no payment recorded: ₱${(unpaidPlayed.reduce((n, b) => n + collectable(b), 0) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}.` });

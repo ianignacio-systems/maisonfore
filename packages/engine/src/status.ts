@@ -21,8 +21,12 @@ export function dueWithBooking(b: Payable): number {
   return b.quote?.length ? counterSplit(b.quote, b.channel === 'app').total : b.amount;
 }
 
-/** A booking can be checked in only once it's paid (or when nothing is paid with the booking). */
-export function paidForCheckIn(b: Payable & { payStatus: string }): boolean {
+/**
+ * A booking can be checked in only once it's paid (or when nothing is paid with the booking), unless the
+ * club has golfers pay after playing: then checking in is registering, and they settle after the round.
+ */
+export function paidForCheckIn(b: Payable & { payStatus: string }, payWhen: 'before' | 'after' = 'before'): boolean {
+  if (payWhen === 'after') return true;
   return b.payStatus !== 'unpaid' || dueWithBooking(b) === 0;
 }
 
