@@ -436,6 +436,14 @@ describe('the golfer app', () => {
     const page = await t.call(GOLFER, 'GET', '/golf/courses/valleygolfclub');
     expect(page.body.course.name).toBe('Valley Golf Club');
     expect(page.body.setup.playerTypes.every((p: { public: boolean }) => p.public)).toBe(true);
+    // A gallery fee saved switched off still prices gallery guests in the app while gallery is allowed.
+    const fees = (await t.call(OWNER, 'GET', `/courses/${id}`)).body.setup.fees as { kind: string; active: boolean }[];
+    if (fees.some((f) => f.kind === 'gallery')) {
+      await t.call(OWNER, 'PUT', `/courses/${id}/fees`, { fees: fees.map((f) => (f.kind === 'gallery' ? { ...f, active: false } : f)) });
+      const again = await t.call(GOLFER, 'GET', '/golf/courses/valleygolfclub');
+      expect(again.body.setup.fees.some((f: { kind: string }) => f.kind === 'gallery')).toBe(again.body.setup.options.galleryMax > 0);
+      await t.call(OWNER, 'PUT', `/courses/${id}/fees`, { fees });
+    }
     const times = await t.call(GOLFER, 'GET', `/golf/courses/valleygolfclub/times?day=${WED}`);
     expect(times.body.layouts[0].slots.length).toBeGreaterThan(0);
     expect(JSON.stringify(times.body)).not.toMatch(/contactName|bookings/);

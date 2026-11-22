@@ -111,7 +111,8 @@ export async function coursePage(db: Db, slug: string, now = Date.now()) {
       layouts: s.layouts.filter((l) => l.active),
       playerTypes: types,
       rates: s.rates.filter((r) => types.some((t) => t.id === r.playerTypeId)),
-      fees: s.fees.filter((f) => f.active),
+      // The gallery fee is on whenever gallery guests are allowed, as in the engine's price.
+      fees: s.fees.filter((f) => f.active || (f.kind === 'gallery' && s.options.galleryMax > 0)),
       settings: [],
     },
   };
