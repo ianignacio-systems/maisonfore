@@ -61,7 +61,7 @@ export function playerTypeProblem(t: PlayerType, day: Day, time: Minutes): strin
   if (t.days.length && t.days.length < 7 && !t.days.includes(weekday(day))) {
     return `${t.name} rates are for ${listWords([...t.days].sort().map((d) => DAY_WORDS[d]))} only.`;
   }
-  if (t.earliest !== null && time < t.earliest) return `${t.name} tee times start at ${formatTime(t.earliest)}.`;
+  if (t.earliest !== null && time < t.earliest) return `${t.name} tee slots start at ${formatTime(t.earliest)}.`;
   return null;
 }
 

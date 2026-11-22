@@ -27,8 +27,8 @@ describe('time', () => {
   });
 });
 
-describe('tee times', () => {
-  it('lists the tee times from first to last, every interval', () => {
+describe('tee slots', () => {
+  it('lists the tee slots from first to last, every interval', () => {
     const s = settingsFor(course(), 'L18', '2026-11-23')!;
     expect(teeTimes(s)).toEqual([360, 370, 380, 390, 400, 410, 420, 430, 440, 450, 460, 470, 480]);
   });
@@ -43,7 +43,7 @@ describe('tee times', () => {
     expect(checkSettings({ firstTee: 360, lastTee: 300, interval: 3, maxPlayers: 6 })).toHaveLength(3);
     expect(checkSettings({ firstTee: 360, lastTee: 840, interval: 8, maxPlayers: 4 })).toEqual([]);
   });
-  it('builds one slot per tee time per starting tee', () => {
+  it('builds one slot per tee slot per starting tee', () => {
     const now = at('2026-11-20', '12:00');
     const sheet = buildSheet(course(), { layoutId: 'L2T', day: '2026-11-23', bookings: [], blocks: [], now, audience: 'staff' });
     expect(sheet).toHaveLength(7 * 2);
@@ -73,7 +73,7 @@ describe('slot states', () => {
     const sheet = buildSheet(course(), { layoutId: 'L18', day: '2026-11-23', bookings: [booking({ time: 380 })], blocks: [], now, audience: 'public' });
     expect(sheet.find((s) => s.time === 380)!.bookings).toEqual([]);
   });
-  it('marks past tee times', () => {
+  it('marks past tee slots', () => {
     const sheet = buildSheet(course(), { layoutId: 'L18', day: '2026-11-23', bookings: [], blocks: [], now: at('2026-11-23', '07:05'), audience: 'staff' });
     expect(sheet.find((s) => s.time === 420)!.state).toBe('past');
     expect(sheet.find((s) => s.time === 430)!.state).toBe('open');
@@ -127,7 +127,7 @@ describe('checking a booking', () => {
     expect(checkBooking(c, sheetOf('staff', [booking({ time: 360, players: 4 })]), { ...req, time: 360, audience: 'staff' })).toBe('6:00 AM is full.');
   });
   it('refuses a time that is not on the sheet', () => {
-    expect(checkBooking(c, sheetOf('public'), { ...req, time: 365 })).toBe('There is no tee time at 6:05 AM on Monday, 23 November.');
+    expect(checkBooking(c, sheetOf('public'), { ...req, time: 365 })).toBe('There is no tee slot at 6:05 AM on Monday, 23 November.');
   });
   it('lets staff book held slots, but not the public', () => {
     const blocks = [block({ from: 380, to: 390 })];
@@ -143,7 +143,7 @@ describe('checking a booking', () => {
     const satStaff = buildSheet(c2, { layoutId: 'L18', day: '2026-11-28', bookings: [], blocks: [], now: at('2026-11-22', '08:00'), audience: 'staff' });
     expect(checkBooking(c2, satStaff, { ...req, day: '2026-11-28', players: 1, audience: 'staff' })).toBeNull();
   });
-  it('keeps one group per tee time when sharing is off', () => {
+  it('keeps one group per tee slot when sharing is off', () => {
     const solo = course({ rules: { ...DEFAULT_RULES, shareTeeTimes: false } });
     const s = buildSheet(solo, { layoutId: 'L18', day: '2026-11-23', bookings: [booking({ time: 380, players: 2 })], blocks: [], now: at('2026-11-22', '08:00'), audience: 'staff' });
     expect(s.find((x) => x.time === 380)).toMatchObject({ state: 'full', free: 0, used: 2 });
@@ -179,7 +179,7 @@ describe('checking a booking', () => {
     const s = buildSheet(tight, { layoutId: 'L18', day: '2026-11-23', bookings: [], blocks: [], now, audience: 'public' });
     expect(checkBooking(tight, s, { ...req, players: 3 })).toBe('A booking can have at most 2 players.');
     expect(checkBooking(c, sheetOf('public'), { ...req, golferOpenBookings: 2 })).toBe('You can have up to 2 bookings at this course at a time.');
-    expect(checkBooking(c, sheetOf('public'), { ...req, golferRecentNoShows: 2 })).toMatch(/missed tee times/);
+    expect(checkBooking(c, sheetOf('public'), { ...req, golferRecentNoShows: 2 })).toMatch(/missed tee slots/);
   });
   it('lets a moved booking keep its own spots', () => {
     const mine = booking({ id: 'MINE', time: 380, players: 3 });

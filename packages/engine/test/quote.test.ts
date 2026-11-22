@@ -99,7 +99,7 @@ describe('quote', () => {
   it('flags player types outside their days or hours, and missing green fees', () => {
     expect(quote(ph, { layoutId: 'L18', day: WED, time: 420, holes: 18, players: ['SEN'] }).problems).toEqual([]);
     expect(quote(ph, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['SEN'] }).problems).toContain('Senior rates are for Wednesdays only.');
-    expect(quote(ph, { layoutId: 'L18', day: MON, time: 600, holes: 18, players: ['JUN'] }).problems).toContain('Junior tee times start at 11:00 AM.');
+    expect(quote(ph, { layoutId: 'L18', day: MON, time: 600, holes: 18, players: ['JUN'] }).problems).toContain('Junior tee slots start at 11:00 AM.');
     expect(quote(ph, { layoutId: 'L18', day: SAT, time: 700, holes: 18, players: ['JUN'] }).problems).toContain('There is no 18-hole weekend green fee for Junior yet.');
   });
 });

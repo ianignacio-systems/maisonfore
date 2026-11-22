@@ -20,10 +20,10 @@ export function NewCourse({ onCreated }: { onCreated: (slug: string) => void }) 
   };
 
   return (
-    <AuthFrame headline="Put your open tee times in front of golfers." body="Listing is free. You pay a fee only on bookings golfers make in the app; phone and walk-in bookings you take here cost nothing.">
+    <AuthFrame headline="Put your open tee slots in front of golfers." body="Listing is free. You pay a fee only on bookings golfers make in the app; phone and walk-in bookings you take here cost nothing.">
       <form onSubmit={(e) => { e.preventDefault(); void go(); }}>
         <h1>Add your course</h1>
-        <p className="lead">Next you’ll set your tee times and rates. Maison checks every course before it appears in the app.</p>
+        <p className="lead">Next you’ll set your tee slots and rates. Maison checks every course before it appears in the app.</p>
         <Field label="Course name" value={f.name} onChange={set('name')} autoFocus placeholder="e.g. Valley Golf Club" />
         <Field label="Street address" value={f.address} onChange={set('address')} />
         <div className="row">

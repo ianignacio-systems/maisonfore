@@ -28,7 +28,7 @@ export function SignIn({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <AuthFrame headline="The tee sheet, without the paper." body="Take phone and walk-in bookings, hold times for your regulars, and let golfers book your open tee times in the MaisonFore app.">
+    <AuthFrame headline="The tee sheet, without the paper." body="Take phone and walk-in bookings, hold times for your regulars, and let golfers book your open tee slots in the MaisonFore app.">
       <form onSubmit={(e) => { e.preventDefault(); void go(); }}>
         <h1>{mode === 'in' ? 'Sign in' : mode === 'up' ? 'Create your Maison account' : 'Reset your password'}</h1>
         <p className="lead">

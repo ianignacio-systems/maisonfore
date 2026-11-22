@@ -66,7 +66,7 @@ export async function overview(db: Db, c: Caller, courseId: string, now = Date.n
       }
     }
     const loose = dayRows.filter((b) => !b.special && !onSheet.has(`${b.layoutId}|${b.startTee}|${b.time}`)).length;
-    if (loose + blocked) attention.push({ kind: 'move', day: d.day, text: `${loose + blocked} ${loose + blocked === 1 ? 'booking' : 'bookings'} on ${d.day === today ? 'today’s' : 'a'} closed or removed tee time. Call to move or cancel.` });
+    if (loose + blocked) attention.push({ kind: 'move', day: d.day, text: `${loose + blocked} ${loose + blocked === 1 ? 'booking' : 'bookings'} on ${d.day === today ? 'today’s' : 'a'} closed or removed tee slot. Call to move or cancel.` });
   }
   if (c && (await db.query("select 1 from members where business_id = $1 and account_id = $2 and role = 'owner'", [courseId, c.accountId])).length) {
     const invites = await db.query('select email from invites where business_id = $1', [courseId]);

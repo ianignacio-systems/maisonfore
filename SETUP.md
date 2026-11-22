@@ -118,7 +118,7 @@ MaisonFore uses the same four accounts as MaisonPOS: **Supabase**, **Render** (S
 ## First use
 
 1. Open `maisonfore.com`, sign in with your Maison account (your MaisonPOS email and password work).
-2. **Add your course**, then **Settings**: tee times, players and green fees (local, foreign, senior…, 9 and 18 holes), carts, caddies and fees, booking rules, holidays and the course page.
+2. **Add your course**, then **Settings**: tee slots, players and green fees (local, foreign, senior…, 9 and 18 holes), carts, caddies and fees, booking rules, holidays and the course page.
 3. **Go live → Send to Maison for review**. A Maison admin approves it at `maisonfore.com/admin`.
 4. Staff use **Tee sheet** for phone, Viber and walk-in bookings from day one, before approval.
 5. Once approved, golfers find the course at `maisonfore.com/play`.

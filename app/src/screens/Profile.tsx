@@ -33,7 +33,7 @@ export function ProfileSetup({ email, onDone }: { email: string; onDone: (m: Me)
       <form onSubmit={(e) => { e.preventDefault(); void go(); }}>
         <p className="pl-kicker">{email}</p>
         <h1>A little about you</h1>
-        <p className="pl-muted">Courses use this to hold your tee time and reach you about it.</p>
+        <p className="pl-muted">Courses use this to hold your tee slot and reach you about it.</p>
         <Input label="Your name" value={f.name} onChange={(v) => setF({ ...f, name: v })} autoComplete="name" autoFocus />
         <Input label="Mobile number" type="tel" inputMode="tel" value={f.mobile} onChange={(v) => setF({ ...f, mobile: v })} placeholder="0917 123 4567" autoComplete="tel" />
         <Residency value={f.residency} onChange={(v) => setF({ ...f, residency: v })} />

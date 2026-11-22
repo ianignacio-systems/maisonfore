@@ -1,5 +1,33 @@
-Changed or new files (4):
+Changed or new files (32):
+  README.md
+  SETUP.md
+  app/index.html
+  app/public/manifest.webmanifest
+  app/src/App.tsx
+  app/src/api.ts
+  app/src/main.tsx
+  app/src/play.css
+  app/src/screens/Bookings.tsx
+  app/src/screens/Course.tsx
+  app/src/screens/Find.tsx
+  app/src/screens/Profile.tsx
+  app/src/screens/SignIn.tsx
+  app/src/ui.tsx
   packages/engine/src/quote.ts
+  packages/engine/src/sheet.ts
+  packages/engine/src/status.ts
+  packages/engine/src/types.ts
+  packages/engine/test/engine.test.ts
   packages/engine/test/quote.test.ts
+  portal/src/screens/CourseApp.tsx
+  portal/src/screens/NewCourse.tsx
   portal/src/screens/Settings.tsx
+  portal/src/screens/SignIn.tsx
   portal/src/screens/TeeSheet.tsx
+  portal/src/screens/panels.tsx
+  scripts/sample-course.mjs
+  server/src/bookings.ts
+  server/src/courses.ts
+  server/src/golf.ts
+  server/src/overview.ts
+  server/test/api.test.ts

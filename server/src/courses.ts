@@ -194,7 +194,7 @@ async function insertSettings(q: Db, id: string, s: SheetSettings) {
 }
 
 /**
- * Layouts and their tee times. New tee-time settings take effect from a date, so bookings already on
+ * Layouts and their tee slots. New tee-slot settings take effect from a date, so bookings already on
  * the sheet before that date keep their times. Layouts are switched off, never deleted, once used.
  */
 export async function saveSheet(db: Db, c: Caller, id: string, input: { layouts?: unknown; settings?: unknown }, now = Date.now()): Promise<CourseSetup> {
@@ -208,8 +208,8 @@ export async function saveSheet(db: Db, c: Caller, id: string, input: { layouts?
   if (layouts.length && !layouts.some((l) => l.active)) throw new UserError('Keep at least one course open for booking.');
   const settings: SheetSettings[] = (Array.isArray(input.settings) ? input.settings : []).map((s: Record<string, unknown>) => {
     const v = {
-      layoutId: text(s.layoutId, 'the layout', { required: true, max: 40 }), effectiveFrom: day(s.effectiveFrom, 'the date the tee times start'),
-      firstTee: minutes(s.firstTee, 'the first tee time'), lastTee: minutes(s.lastTee, 'the last tee time'),
+      layoutId: text(s.layoutId, 'the layout', { required: true, max: 40 }), effectiveFrom: day(s.effectiveFrom, 'the date the tee slots start'),
+      firstTee: minutes(s.firstTee, 'the first tee slot'), lastTee: minutes(s.lastTee, 'the last tee slot'),
       interval: int(s.interval, 'the interval', 1, 60), maxPlayers: int(s.maxPlayers, 'players per flight', 1, 5),
     };
     const problems = checkSettings(v);
@@ -220,11 +220,11 @@ export async function saveSheet(db: Db, c: Caller, id: string, input: { layouts?
     await saveLayouts(q, id, layouts);
     const known = new Set((await q.query<{ id: string }>('select id from layouts where business_id = $1', [id])).map((r) => r.id));
     for (const s of settings) {
-      if (!known.has(s.layoutId)) throw new UserError('Save the layout before its tee times.');
+      if (!known.has(s.layoutId)) throw new UserError('Save the layout before its tee slots.');
       await insertSettings(q, id, s);
     }
     await touch(q, id);
-    await audit(q, id, c.email, 'setup.teetimes', 'Layouts and tee times', `${layouts.length} layouts, ${settings.length} tee-time settings`, { layouts, settings }, now);
+    await audit(q, id, c.email, 'setup.teetimes', 'Layouts and tee slots', `${layouts.length} layouts, ${settings.length} tee-slot settings`, { layouts, settings }, now);
   });
   return loadSetup(db, id);
 }
@@ -238,7 +238,7 @@ export async function saveRates(db: Db, c: Caller, id: string, input: { playerTy
     return {
       id: text(p.id, 'the player type', { max: 40 }) || newId(), name, public: p.public === true, member: false,
       proof: text(p.proof, `what ${name} golfers show`, { max: 80 }), days: days.length === 7 ? [] : days,
-      earliest: p.earliest === null || p.earliest === undefined || p.earliest === '' ? null : minutes(p.earliest, `the earliest tee time for ${name}`),
+      earliest: p.earliest === null || p.earliest === undefined || p.earliest === '' ? null : minutes(p.earliest, `the earliest tee slot for ${name}`),
       active: p.active !== false,
     };
   });
@@ -371,7 +371,7 @@ export async function readiness(db: Db, id: string): Promise<{ step: string; don
   const has = (dt: string) => s.rates.some((r) => pub.some((p) => p.id === r.playerTypeId) && r.dayType === dt);
   return [
     { step: 'Course details: address, phone and a short description', done: Boolean(c.address && c.phone && c.description) },
-    { step: 'Tee times for at least one layout', done: s.layouts.some((l) => l.active && s.settings.some((x) => x.layoutId === l.id)) },
+    { step: 'Tee slots for at least one layout', done: s.layouts.some((l) => l.active && s.settings.some((x) => x.layoutId === l.id)) },
     { step: 'Weekday and weekend green fees for golfers booking in the app', done: has('weekday') && has('weekend') },
   ];
 }

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { formatDay, localParts } from '@maison/engine';
-import { api, type MyBooking, type Times } from '../api';
-import { Button, clock, Days, go, PriceList, QR, Sheet, shortDay } from '../ui';
+import { formatDay, localParts, weekday } from '@maison/engine';
+import { api, teeFor, teeTimes, type MyBooking, type Times } from '../api';
+import { Button, clock, Days, go, Pass, PriceList, Sheet, SHORT, shortDay } from '../ui';
+
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** My bookings at every course: coming up first (with the QR code to show at the counter), then past ones. */
 export function Bookings() {
@@ -15,10 +17,10 @@ export function Bookings() {
 
   return (
     <div className="pl-page">
-      <header className="pl-head"><h1>Bookings</h1></header>
+      <header className="pl-head"><p className="pl-kicker">Your rounds</p><h1>Bookings</h1></header>
       {problem ? <p className="pl-err">{problem}</p> : null}
       {!list ? <p className="pl-muted pl-pad">Loading…</p> : !list.length ? (
-        <div className="pl-empty"><b>No bookings yet</b><p>Find a course and book your first tee time.</p><Button onClick={() => go('/')}>Find a course</Button></div>
+        <div className="pl-empty"><b>No bookings yet</b><p>Find a course and book your first tee slot.</p><Button onClick={() => go('/')}>Find a course</Button></div>
       ) : (
         <>
           {upcoming.length ? <h2 className="pl-section">Coming up</h2> : null}
@@ -26,9 +28,9 @@ export function Bookings() {
             {upcoming.map((b) => (
               <li key={b.id}>
                 <button className="pl-ticket" onClick={() => setOpen(b)}>
-                  <span className="when"><small>{shortDay(b.day)}</small><b>{clock(b.time)}</b></span>
-                  <span className="what"><b>{b.course.name}</b><small>{b.players} {b.players === 1 ? 'player' : 'players'}, {b.holes} holes{b.layoutName ? `, ${b.layoutName}` : ''}</small><small className="ref">{b.ref}</small></span>
-                  <span className="go" aria-hidden>›</span>
+                  <span className="stub"><small>{SHORT[weekday(b.day)]}</small><b>{Number(b.day.slice(8))}</b><small>{MON[Number(b.day.slice(5, 7)) - 1]}</small></span>
+                  <span className="what"><span className="tm">{clock(b.time)}</span><b>{b.course.name}</b><small>{b.players} {b.players === 1 ? 'player' : 'players'}, {b.holes} holes{b.layoutName ? `, ${b.layoutName}` : ''}</small></span>
+                  <span className="ref">{b.ref}</span>
                 </button>
               </li>
             ))}
@@ -38,9 +40,8 @@ export function Bookings() {
             {past.map((b) => (
               <li key={b.id}>
                 <button className="pl-ticket" onClick={() => setOpen(b)}>
-                  <span className="when"><small>{shortDay(b.day)}</small><b>{clock(b.time)}</b></span>
-                  <span className="what"><b>{b.course.name}</b><small>{b.statusWords}</small></span>
-                  <span className="go" aria-hidden>›</span>
+                  <span className="stub"><small>{SHORT[weekday(b.day)]}</small><b>{Number(b.day.slice(8))}</b><small>{MON[Number(b.day.slice(5, 7)) - 1]}</small></span>
+                  <span className="what"><span className="tm">{clock(b.time)}</span><b>{b.course.name}</b><small>{b.statusWords}</small></span>
                 </button>
               </li>
             ))}
@@ -61,13 +62,10 @@ function Ticket({ b, onClose, onChanged }: { b: MyBooking; onClose: () => void; 
     try { await api(`/bookings/${b.id}/cancel`, { method: 'POST', body: {} }); onChanged(); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
   return (
-    <Sheet title={b.course.name} sub={`${formatDay(b.day)}, ${clock(b.time)}`} onClose={onClose}>
+    <Sheet title={b.upcoming ? 'Your booking' : b.course.name} sub={b.upcoming ? undefined : `${formatDay(b.day)}, ${clock(b.time)}`} onClose={onClose}>
       {b.upcoming && mode === 'view' ? (
-        <div className="pl-done">
-          <QR text={`MAISONFORE:${b.ref}`} size={180} />
-          <p className="pl-ref">{b.ref}</p>
-          <p className="pl-muted">Show this at the counter when you arrive.</p>
-        </div>
+        <Pass code={b.ref} course={b.course.name} when={`${shortDay(b.day)}, ${clock(b.time)}`}
+          detail={`${b.players} ${b.players === 1 ? 'player' : 'players'}, ${b.holes} holes${b.startTee !== '1' ? `, from tee ${b.startTee}` : ''}`} />
       ) : <p className={`pl-status s-${b.status}`}>{b.statusWords}</p>}
       {mode === 'view' ? (
         <>
@@ -84,11 +82,11 @@ function Ticket({ b, onClose, onChanged }: { b: MyBooking; onClose: () => void; 
               <Button kind="line" onClick={() => setMode('move')}>Change time</Button>
               <Button kind="quiet" onClick={() => setMode('cancel')}>Cancel booking</Button>
             </div>
-          ) : <p className="pl-muted small">Changes within {b.cutoffHours} hours of the tee time go through the course.{b.course.phone ? <> <a href={`tel:${b.course.phone.replace(/\s/g, '')}`}>Call {b.course.phone}</a></> : null}</p>) : null}
+          ) : <p className="pl-muted small">Changes within {b.cutoffHours} hours of the tee slot go through the course.{b.course.phone ? <> <a href={`tel:${b.course.phone.replace(/\s/g, '')}`}>Call {b.course.phone}</a></> : null}</p>) : null}
         </>
       ) : mode === 'cancel' ? (
         <div className="pl-confirm">
-          <p>Cancel your tee time at <b>{clock(b.time)}</b> on <b>{formatDay(b.day)}</b>?</p>
+          <p>Cancel your tee slot at <b>{clock(b.time)}</b> on <b>{formatDay(b.day)}</b>?</p>
           <div className="pl-actions"><Button kind="danger" disabled={busy} onClick={() => void cancel()}>Yes, cancel it</Button><Button kind="line" onClick={() => setMode('view')}>Keep it</Button></div>
         </div>
       ) : <MoveTime b={b} onBack={() => setMode('view')} onDone={onChanged} />}
@@ -108,7 +106,9 @@ function MoveTime({ b, onBack, onDone }: { b: MyBooking; onBack: () => void; onD
     setMsg(null);
     try { await api(`/bookings/${b.id}/move`, { method: 'POST', body: { layoutId, startTee, day, time } }); onDone(); } catch (e) { setMsg((e as Error).message); }
   };
-  const slots = (times?.layouts ?? []).flatMap((l) => l.slots.filter((s) => s.free >= b.players && !(day === b.day && s.time === b.time)).map((s) => ({ ...s, layoutId: l.id, name: l.name, two: l.startTees.length > 1 })));
+  // Each time once, on the first tee with room for this group.
+  const slots = (times?.layouts ?? []).flatMap((l) => teeTimes(l.slots, l.startTees).filter((t) => t.free >= b.players && !(day === b.day && t.time === b.time))
+    .map((t) => ({ ...teeFor(t, b.players), free: t.free, layoutId: l.id, name: l.name, many: (times?.layouts.length ?? 1) > 1 })));
   return (
     <div className="pl-move">
       <p><b>Choose a new time</b> for {b.players} {b.players === 1 ? 'player' : 'players'}. The price may change with the day and time.</p>
@@ -117,7 +117,7 @@ function MoveTime({ b, onBack, onDone }: { b: MyBooking; onBack: () => void; onD
         <div className="pl-slots">
           {slots.map((s) => (
             <button key={`${s.layoutId}-${s.startTee}-${s.time}`} className="pl-slot" onClick={() => void move(s.layoutId, s.startTee, s.time)}>
-              <b>{clock(s.time)}</b><span>{s.free} spots{s.two ? `, tee ${s.startTee}` : ''}</span>
+              <b>{clock(s.time)}</b><span>{s.many ? s.name : `${s.free} ${s.free === 1 ? 'spot' : 'spots'}`}</span>
             </button>
           ))}
         </div>

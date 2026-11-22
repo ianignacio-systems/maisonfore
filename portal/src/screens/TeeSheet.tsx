@@ -72,7 +72,7 @@ export function TeeSheet({ courseId, setup, courseName, readOnly, canSpecial, in
         <div className="fore-layouts">{layouts.map((l, i) => <button key={l.id} className={i === layoutIx ? 'on' : ''} onClick={() => setLayoutIx(i)}>{l.name}</button>)}</div>
       ) : null}
       </div>
-      {!layout ? <p className="fore-empty">No tee times are set up yet. Add them in Settings.</p>
+      {!layout ? <p className="fore-empty">No tee slots are set up yet. Add them in Settings.</p>
         : view === 'day' ? <DayView key={`${day}-${layout.id}`} courseId={courseId} setup={setup} day={day} today={today} layoutId={layout.id} readOnly={readOnly} canSpecial={canSpecial} page={page} />
           : <WeekView key={`${weekStart}-${layout.id}`} courseId={courseId} weekStart={weekStart} today={today} layoutId={layout.id} onOpen={(d) => { setDay(d); pick('day'); }} onSwipe={(dir) => setDay(addDays(day, dir * 7))} />}
     </div>
@@ -184,11 +184,11 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
           ))}
         </section>
       ) : null}
-      {sheet?.loose.length ? <p className="fore-alert warn">{sheet.loose.length === 1 ? 'One booking is' : `${sheet.loose.length} bookings are`} on a tee time that’s no longer on the sheet: {sheet.loose.map((b) => `${b.contactName} at ${formatTime(b.time)}`).join(', ')}. Move {sheet.loose.length === 1 ? 'it' : 'them'} to another time.</p> : null}
-      {!sheet ? <p className="fore-empty">Loading the tee sheet…</p> : !L || !allTimes.length ? <p className="fore-empty">No tee times on this day. Check the tee times in Settings.</p> : !times.length ? <p className="fore-empty">No available slots left on this day. <button className="fore-link" onClick={toggleOpen}>Show all slots</button></p> : (
+      {sheet?.loose.length ? <p className="fore-alert warn">{sheet.loose.length === 1 ? 'One booking is' : `${sheet.loose.length} bookings are`} on a tee slot that’s no longer on the sheet: {sheet.loose.map((b) => `${b.contactName} at ${formatTime(b.time)}`).join(', ')}. Move {sheet.loose.length === 1 ? 'it' : 'them'} to another time.</p> : null}
+      {!sheet ? <p className="fore-empty">Loading the tee sheet…</p> : !L || !allTimes.length ? <p className="fore-empty">No tee slots on this day. Check the tee slots in Settings.</p> : !times.length ? <p className="fore-empty">No available slots left on this day. <button className="fore-link" onClick={toggleOpen}>Show all slots</button></p> : (
         <div className={`fore-sheet tees-${tees.length}`} ref={sheetBox}>
           <div className="fore-sheet-head">
-            <span>Tee time</span>
+            <span>Tee slot</span>
             {tees.map((t) => <span key={t}>{tees.length > 1 ? `From tee ${t}` : 'Flight'}</span>)}
           </div>
           {times.map((time, i) => {
@@ -302,7 +302,7 @@ function WeekView({ courseId, weekStart, today, layoutId, onOpen, onSwipe }: { c
         <span>Fewer players</span><i className="l0" /><i className="l1" /><i className="l2" /><i className="l3" /><i className="l4" /><span>Full</span>
         <i className="held" /><span>Pencil hold</span><i className="event" /><span>Event</span><i className="closed" /><span>Closed</span>
       </div>
-      {!loaded ? <p className="fore-empty">Loading the week…</p> : !hours.length ? <p className="fore-empty">No tee times this week. Check the tee times in Settings.</p> : (
+      {!loaded ? <p className="fore-empty">Loading the week…</p> : !hours.length ? <p className="fore-empty">No tee slots this week. Check the tee slots in Settings.</p> : (
         <div className="fore-week" {...swipe}>
           <div className="fore-wk-corner" />
           {days.map((d) => {

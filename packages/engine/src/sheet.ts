@@ -14,7 +14,7 @@ export function settingsFor(setup: CourseSetup, layoutId: string, day: Day): She
   return best;
 }
 
-/** The tee times on a day for a layout: first to last tee, every interval. */
+/** The tee slots on a day for a layout: first to last tee, every interval. */
 export function teeTimes(s: SheetSettings): Minutes[] {
   const out: Minutes[] = [];
   if (s.interval <= 0) return out;
@@ -26,8 +26,8 @@ export function teeTimes(s: SheetSettings): Minutes[] {
 export function checkSettings(s: Pick<SheetSettings, 'firstTee' | 'lastTee' | 'interval' | 'maxPlayers'>): string[] {
   const p: string[] = [];
   if (!(s.interval >= 5 && s.interval <= 30)) p.push('The interval between flights should be 5 to 30 minutes.');
-  if (!(s.firstTee >= 4 * 60 && s.firstTee <= 20 * 60)) p.push('The first tee time should be between 4:00 AM and 8:00 PM.');
-  if (!(s.lastTee >= s.firstTee && s.lastTee < 24 * 60)) p.push('The last tee time must be after the first.');
+  if (!(s.firstTee >= 4 * 60 && s.firstTee <= 20 * 60)) p.push('The first tee slot should be between 4:00 AM and 8:00 PM.');
+  if (!(s.lastTee >= s.firstTee && s.lastTee < 24 * 60)) p.push('The last tee slot must be after the first.');
   if (!(s.maxPlayers >= 1 && s.maxPlayers <= 5)) p.push('A flight is 1 to 5 players.');
   return p;
 }
@@ -104,7 +104,7 @@ export function buildSheet(setup: CourseSetup, input: SheetInput): Slot[] {
       const used = on.reduce((n, b) => n + b.players, 0);
       const block = blockOn(input.blocks, layout.id, startTee, day, time, now, setup.memberFeatures);
       const capacity = s.maxPlayers;
-      // One group per tee time: once anyone books it, it is full for everyone else.
+      // One group per tee slot: once anyone books it, it is full for everyone else.
       const taken = used >= capacity || (!setup.rules.shareTeeTimes && used > 0);
       let state: Slot['state'];
       if (past) state = 'past';
@@ -147,7 +147,7 @@ export function checkBooking(setup: CourseSetup, sheet: Slot[], r: BookingReques
   if (!layout || !layout.active) return 'That layout is not open for booking.';
   const slot = sheet.find((x) => x.startTee === r.startTee && x.time === r.time && x.day === r.day && x.layoutId === r.layoutId);
   const at = `${formatTime(r.time)}${layout.startTees.length > 1 ? ` (tee ${r.startTee})` : ''}`;
-  if (!slot) return `There is no tee time at ${at} on ${formatDay(r.day)}.`;
+  if (!slot) return `There is no tee slot at ${at} on ${formatDay(r.day)}.`;
   if (!Number.isInteger(r.players) || r.players < 1) return 'A booking needs at least 1 player.';
   const maxPlayers = r.audience === 'staff' ? slot.capacity : Math.min(slot.capacity, setup.rules.maxPlayersPerBooking);
   const least = minPlayers(setup, r.day);
@@ -161,7 +161,7 @@ export function checkBooking(setup: CourseSetup, sheet: Slot[], r: BookingReques
     if (slot.state === 'members') return `${at} is for members only.`;
     if (slot.state === 'not_released') return opensMessage(setup, r.day);
     if ((r.golferRecentNoShows ?? 0) >= setup.rules.noShowLimit && setup.rules.noShowLimit > 0) {
-      return 'App booking is paused on your account because of missed tee times. Call the course to book.';
+      return 'App booking is paused on your account because of missed tee slots. Call the course to book.';
     }
     if (!r.movingBookingId && (r.golferOpenBookings ?? 0) >= setup.rules.maxOpenBookingsPerGolfer) {
       return `You can have up to ${setup.rules.maxOpenBookingsPerGolfer} bookings at this course at a time.`;

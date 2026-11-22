@@ -33,6 +33,24 @@ export interface CoursePage {
   setup: CourseSetup;
 }
 export interface OpenSlot { time: number; startTee: string; free: number; capacity: number }
+/** One tee slot as golfers see it: the same time on every starting tee, shown once. */
+export interface TeeTime { time: number; free: number; tees: OpenSlot[] }
+
+/**
+ * Courses that start on two tees (1 and 10) have each time twice. Golfers book a time, not a tee:
+ * show each time once, with the most room on any tee, in the course's tee order.
+ */
+export function teeTimes(slots: OpenSlot[], startTees: string[]): TeeTime[] {
+  const by = new Map<number, OpenSlot[]>();
+  for (const x of slots) by.set(x.time, [...(by.get(x.time) ?? []), x]);
+  const order = (t: string) => { const i = startTees.indexOf(t); return i < 0 ? 99 : i; };
+  return [...by].sort((a, b) => a[0] - b[0]).map(([time, tees]) => ({ time, tees: tees.sort((a, b) => order(a.startTee) - order(b.startTee)), free: Math.max(...tees.map((x) => x.free)) }));
+}
+
+/** The starting tee for a group of this size: the first tee, in the course's order, with room for all of them. */
+export function teeFor(t: TeeTime, players: number): OpenSlot {
+  return t.tees.find((x) => x.free >= players) ?? t.tees[0];
+}
 export interface Times { day: string; notYet: string | null; layouts: { id: string; name: string; holes: 9 | 18; startTees: string[]; slots: OpenSlot[] }[] }
 export interface MyBooking {
   id: string; ref: string; day: string; time: number; players: number; holes: number; status: BookingStatus; statusWords: string;

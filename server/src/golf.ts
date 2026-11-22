@@ -12,7 +12,7 @@ import { getCourse, loadSetup } from './courses';
 import { newId } from '@maison/core';
 
 /**
- * The golfer app (APP-1, APP-2): a golfer's profile, finding partner courses, their open tee times, and
+ * The golfer app (APP-1, APP-2): a golfer's profile, finding partner courses, their open tee slots, and
  * booking, cancelling and changing time within each course's rules. Golfers only ever see live courses and
  * open times, never who else is booked.
  */
@@ -72,7 +72,7 @@ async function publicSlots(db: Db, courseId: string, s: CourseSetup, d: string, 
   }));
 }
 
-/** Partner courses that are live, with their lowest price and open tee times on a day. */
+/** Partner courses that are live, with their lowest price and open tee slots on a day. */
 export async function findCourses(db: Db, input: { q?: unknown; day?: unknown }, now = Date.now()) {
   const q = text(input.q, 'the search', { max: 80 }).toLowerCase();
   const rows = await db.query<{ id: string; slug: string; name: string; city: string; province: string; description: string; facilities: string[] }>(
@@ -88,7 +88,8 @@ export async function findCourses(db: Db, input: { q?: unknown; day?: unknown },
     const open = layouts.flatMap((l) => l.slots).filter((x) => (x.state === 'open' || x.state === 'partial') && x.free > 0).sort((a, b) => a.time - b.time);
     out.push({
       id: r.id, slug: r.slug, name: r.name, city: r.city, province: r.province, description: r.description, facilities: r.facilities ?? [],
-      day: d, fromPrice: fromPrice(s, d), openSlots: open.length, nextTimes: [...new Set(open.map((x) => x.time))].slice(0, 5),
+      // Each tee slot counts once, however many starting tees it has room on.
+      day: d, fromPrice: fromPrice(s, d), openSlots: layouts.reduce((n, l) => n + new Set(l.slots.filter((x) => (x.state === 'open' || x.state === 'partial') && x.free > 0).map((x) => x.time)).size, 0), nextTimes: [...new Set(open.map((x) => x.time))].slice(0, 5),
       notYet: d > win.lastDay ? opensMessage(s, d) : null, holes: [...new Set(s.layouts.filter((l) => l.active).map((l) => l.holes))],
     });
   }
@@ -116,7 +117,7 @@ export async function coursePage(db: Db, slug: string, now = Date.now()) {
   };
 }
 
-/** Open tee times on a day, by course layout. Only times golfers can book; never who else is booked. */
+/** Open tee slots on a day, by course layout. Only times golfers can book; never who else is booked. */
 export async function courseTimes(db: Db, slug: string, input: { day?: unknown }, now = Date.now()) {
   const id = await liveCourseId(db, slug);
   const s = await loadSetup(db, id);
@@ -216,7 +217,7 @@ export async function golferCancel(db: Db, c: Caller, id: string, now = Date.now
   const setup = await loadSetup(db, courseId);
   return db.tx(async (q) => {
     const b = await lockBooking(q, courseId, id);
-    if (!golferCanChange(setup, b, now)) throw new UserError(`Bookings can be cancelled in the app up to ${setup.rules.cancelCutoffHours} hours before the tee time. Call the course.`);
+    if (!golferCanChange(setup, b, now)) throw new UserError(`Bookings can be cancelled in the app up to ${setup.rules.cancelCutoffHours} hours before the tee slot. Call the course.`);
     await q.query("update bookings set status = 'cancelled', cancel_reason = 'Cancelled by the golfer in the app', updated_at = $3 where business_id = $1 and id = $2", [courseId, id, now]);
     await audit(q, courseId, c.email, 'booking.cancelled', `${b.ref} · ${b.contactName}`, 'Cancelled by the golfer in the app', null, now);
     return { ok: true };

@@ -9,6 +9,19 @@ export function isPencil(b: Pick<Booking, 'status' | 'payDueBy'>, now: number): 
   return b.status === 'confirmed' && b.payDueBy !== undefined && b.payDueBy !== null && b.payDueBy <= now;
 }
 
+/**
+ * What the counter collects for a booking: the lines paid with the booking (not fees paid separately or
+ * straight to the caddie). Bookings made before prices were kept line by line owe their whole amount.
+ */
+export function dueWithBooking(b: { quote?: { amount: number; payAt: string }[] | null; amount: number }): number {
+  return b.quote?.length ? b.quote.filter((l) => l.payAt === 'booking' || l.payAt === 'app').reduce((s, l) => s + l.amount, 0) : b.amount;
+}
+
+/** A booking can be checked in only once it's paid (or when nothing is paid with the booking). */
+export function paidForCheckIn(b: { payStatus: string; quote?: { amount: number; payAt: string }[] | null; amount: number }): boolean {
+  return b.payStatus !== 'unpaid' || dueWithBooking(b) === 0;
+}
+
 /** Bookings that take up their slot: an unexpired hold, or anything confirmed or after (but not a pencil booking). */
 export function takesSlot(b: Pick<Booking, 'status' | 'holdExpiresAt'> & { payDueBy?: number | null }, now: number): boolean {
   if (b.status === 'held') return b.holdExpiresAt !== null && b.holdExpiresAt > now;
@@ -43,7 +56,7 @@ export const STATUS_WORDS: Record<BookingStatus, string> = {
   held: 'Held', confirmed: 'Confirmed', checked_in: 'Checked in', played: 'Played', cancelled: 'Cancelled', no_show: 'No-show', expired: 'Expired',
 };
 
-/** The tee time as a moment (epoch ms). */
+/** The tee slot as a moment (epoch ms). */
 export function teeMoment(setup: CourseSetup, b: Pick<Booking, 'day' | 'time'>): number {
   return zonedEpoch(b.day, b.time, setup.timeZone);
 }

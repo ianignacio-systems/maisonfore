@@ -52,9 +52,9 @@ describe('setting up and going live', () => {
     expect(r.body.error).toMatch(/description/);
     expect(r.body.error).toMatch(/green fees/);
   });
-  it('saves tee times, rates and rules, refusing settings that make no sense', async () => {
+  it('saves tee slots, rates and rules, refusing settings that make no sense', async () => {
     const bad = await t.call(OWNER, 'PUT', `/courses/${id}/teetimes`, { layouts: [{ id: layoutId, name: '18 holes', holes: 18, startTees: ['1'] }], settings: [{ layoutId, effectiveFrom: '2026-11-20', firstTee: 360, lastTee: 300, interval: 8, maxPlayers: 4 }] });
-    expect(bad.body.error).toBe('The last tee time must be after the first.');
+    expect(bad.body.error).toBe('The last tee slot must be after the first.');
     const two = await t.call(OWNER, 'PUT', `/courses/${id}/teetimes`, {
       layouts: [{ id: layoutId, name: '18 holes', holes: 18, startTees: ['1', '10'] }],
       settings: [{ layoutId, effectiveFrom: '2026-11-20', firstTee: 360, lastTee: 480, interval: 10, maxPlayers: 4 }],
@@ -134,9 +134,11 @@ describe('the tee sheet and bookings', () => {
     b = (await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: MON, time: 450, players: 2, contactName: 'Carlo' })).body.id;
   });
   it('checks golfers in and out, and refuses changes that make no sense', async () => {
-    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${a}/no-show`)).body.error).toBe('You can mark a no-show once the tee time has passed.');
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${a}/no-show`)).body.error).toBe('You can mark a no-show once the tee slot has passed.');
     expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${a}/played`)).body.error).toMatch(/can’t be changed to played/);
     t.clock.now = at(MON, '06:25');
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${a}/check-in`)).body.error).toMatch(/isn’t paid yet/);
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${a}/payment`, { amount: 100, method: 'cash' })).body.payStatus).toBe('paid_course');
     expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${a}/check-in`)).body.status).toBe('checked_in');
     expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${a}/played`)).body.status).toBe('played');
     expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${b}/cancel`)).body.error).toBe('Add a reason for cancelling.');
@@ -240,7 +242,7 @@ describe('Philippine pricing: player types, 9 holes, carts, caddies, gallery and
     expect(r.body.error).toMatch(/player type/);
     expect(senior).not.toBe('');
   });
-  it('takes a club with more than one course, each with its own holes and tee times', async () => {
+  it('takes a club with more than one course, each with its own holes and tee slots', async () => {
     const c = await t.call(OWNER, 'GET', `/courses/${id}`);
     const r = await t.call(OWNER, 'PUT', `/courses/${id}/teetimes`, { layouts: [...c.body.setup.layouts, { id: 'east', name: 'East course', holes: 9, startTees: ['1'] }],
       settings: [{ layoutId: 'east', effectiveFrom: '2026-11-01', firstTee: 360, lastTee: 600, interval: 9, maxPlayers: 4 }] });
@@ -337,7 +339,7 @@ describe('special bookings and player rules', () => {
     if (acc) await t.db.query("insert into members (business_id, account_id, email, role, added_at) values ($1, $2, 'starter@valley.ph', 'starter', 0) on conflict (business_id, account_id) do update set role = 'starter'", [id, acc.id]);
     expect((await t.call('starter@valley.ph', 'POST', `/courses/${id}/specials`, { day: SAT, players: 1, contactName: 'X' })).status).toBe(403);
   });
-  it('saves the minimum players and the one-group-per-tee-time rule', async () => {
+  it('saves the minimum players and the one-group-per-tee-slot rule', async () => {
     const c = await t.call(OWNER, 'GET', `/courses/${id}`);
     const r = await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, minPlayersWeekday: 1, minPlayersWeekend: 2, shareTeeTimes: false });
     expect(r.body).toMatchObject({ minPlayersWeekday: 1, minPlayersWeekend: 2, shareTeeTimes: false });
@@ -459,7 +461,7 @@ describe('the golfer app', () => {
     expect((await t.call(GOLFER, 'POST', `/golf/bookings/${b.id}/cancel`)).body).toEqual({ ok: true });
     const soon = await t.call(GOLFER, 'POST', '/golf/courses/valleygolfclub/bookings', { layoutId, startTee: '1', day: MON, time: 450, players: 1 });
     expect(soon.body.error ?? 'ok').toBe('ok');
-    expect((await t.call(GOLFER, 'POST', `/golf/bookings/${soon.body.id}/cancel`)).body.error).toMatch(/hours before the tee time/);
+    expect((await t.call(GOLFER, 'POST', `/golf/bookings/${soon.body.id}/cancel`)).body.error).toMatch(/hours before the tee slot/);
     expect((await t.call(OTHER, 'POST', `/golf/bookings/${soon.body.id}/cancel`)).status).toBe(404);
   });
 });

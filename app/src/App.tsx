@@ -10,7 +10,7 @@ import { Flag, go, Person, Ticket, usePath } from './ui';
 
 /**
  * The MaisonFore golfer app, at /play:  /             find a course
- *                                       /c/<course>   a course's tee times and booking
+ *                                       /c/<course>   a course's tee slots and booking
  *                                       /bookings     my bookings
  *                                       /profile      my profile
  */

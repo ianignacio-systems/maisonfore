@@ -1,19 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { LOCAL, resetPassword, setNewPassword, signIn, signUp } from '../auth';
-import { Button, Input } from '../ui';
+import { Button, CourseArt, Input } from '../ui';
 
 function Frame({ children }: { children: ReactNode }) {
   return (
     <div className="pl-auth">
-      <div className="pl-auth-art" aria-hidden>
-        <svg viewBox="0 0 400 220" preserveAspectRatio="xMidYMax slice">
-          <path d="M0 150 C80 120 140 170 220 140 S340 110 400 130 V220 H0z" fill="#2c5244" />
-          <path d="M0 180 C90 160 170 200 260 175 S360 160 400 170 V220 H0z" fill="#3f6b57" />
-          <ellipse cx="250" cy="168" rx="44" ry="9" fill="#5d8a72" />
-          <path d="M246 168V92" stroke="#f4ecdd" strokeWidth="3" strokeLinecap="round" />
-          <path d="M249 94l34 12-34 12z" fill="#d6b880" />
-        </svg>
-        <div className="pl-auth-brand"><b>Maison<span>Fore</span></b><p>Tee times at partner courses across the Philippines.</p></div>
+      <div className="pl-auth-art">
+        <CourseArt seed="maisonfore-welcome" />
+        <div className="pl-auth-brand"><b>Maison<span>Fore</span></b><p>Book tee slots at partner courses across the Philippines.</p></div>
       </div>
       <div className="pl-auth-form">{children}</div>
     </div>

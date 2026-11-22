@@ -22,7 +22,7 @@ export interface Layout {
   active: boolean;
 }
 
-/** A layout's tee times, in force from a day until the next settings for the same layout. */
+/** A layout's tee slots, in force from a day until the next settings for the same layout. */
 export interface SheetSettings {
   layoutId: string;
   effectiveFrom: Day;
@@ -39,7 +39,7 @@ export type TimeBand = 'regular' | 'twilight';
 
 /**
  * Who is playing, for pricing: Local, Foreign, Senior, Junior, Member's guest… Each has its own green
- * fees, and can be limited to some days or to tee times from a set time (e.g. seniors on Wednesdays,
+ * fees, and can be limited to some days or to tee slots from a set time (e.g. seniors on Wednesdays,
  * juniors from 11:00 AM).
  */
 export interface PlayerType {
@@ -53,7 +53,7 @@ export interface PlayerType {
   proof: string;
   /** Days it can play, 0 = Sunday … 6 = Saturday. Empty = every day. */
   days: number[];
-  /** Earliest tee time it can book; null = any time. */
+  /** Earliest tee slot it can book; null = any time. */
   earliest: Minutes | null;
   /** Switched off types keep their history but can't be booked. */
   active: boolean;
@@ -74,7 +74,7 @@ export interface BookingRules {
   publicDaysAhead: number;
   /** Clock time a new day opens to the public, e.g. 7:00 AM = 420. */
   releaseTime: Minutes;
-  /** Golfers can cancel or move up to this many hours before the tee time. Staff can any time. */
+  /** Golfers can cancel or move up to this many hours before the tee slot. Staff can any time. */
   cancelCutoffHours: number;
   /** Most players in one booking (usually the flight size). */
   maxPlayersPerBooking: number;
@@ -92,12 +92,12 @@ export interface BookingRules {
   minPlayersWeekday: number;
   /** Fewest players in one app booking on weekends and holidays. */
   minPlayersWeekend: number;
-  /** Different groups can share a tee time until it is full. false = one group per tee time. */
+  /** Different groups can share a tee slot until it is full. false = one group per tee slot. */
   shareTeeTimes: boolean;
   /** Whether every player's name must be given when booking, or only the name for the booking. */
   playerNames: 'optional' | 'required';
   /**
-   * Hours an unpaid phone, Viber or walk-in booking keeps its tee time after it is made. After that it
+   * Hours an unpaid phone, Viber or walk-in booking keeps its tee slot after it is made. After that it
    * becomes a pencil booking: it stays on the sheet but no longer takes its spots. null = kept until paid.
    */
   paymentGraceHours: number | null;

@@ -1,4 +1,4 @@
-// Fills a sample course (Valley Golf Club) with tee times, Philippine-style green fees and fees, and a few weeks of bookings.
+// Fills a sample course (Valley Golf Club) with tee slots, Philippine-style green fees and fees, and a few weeks of bookings.
 // Local trials only: needs the server running with MAISON_DEV_AUTH=1. Run: node scripts/sample-course.mjs
 const B = 'http://localhost:8787/api/v1';
 const OWNER = 'owner@valley.ph';
