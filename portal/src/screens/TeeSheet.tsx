@@ -122,6 +122,17 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
   const checkedIn = bookings.filter((b) => b.status === 'checked_in' || b.status === 'played').length;
   const nowMin = day === today ? localParts(Date.now(), setup.timeZone).minutes : null;
   const after = (note?: string) => { setAdding(null); setOpen(null); setHolding(false); setSpecialing(false); setNotice(note ?? null); void load(true); };
+  // Today opens at the current time: the slots that have already teed off are scrolled up out of view.
+  const scrolled = useRef(false);
+  const sheetBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrolled.current || nowMin === null || !times.length || !sheetBox.current) return;
+    scrolled.current = true;
+    const ix = times.findIndex((t) => t >= nowMin);
+    if (ix <= 0) return; // nothing has teed off yet, or (ix = -1) the day is over: leave it at the top
+    const row = sheetBox.current.querySelectorAll<HTMLElement>('.fore-row')[ix];
+    if (row) scrollUnderHeader(row, sheetBox.current.querySelector<HTMLElement>('.fore-sheet-head'));
+  }, [nowMin, times]);
   const release = (id: string) => api(`/courses/${courseId}/blocks/${id}`, { method: 'DELETE' }).then(() => load(true)).catch((e) => setProblem(e.message));
 
   return (
@@ -175,7 +186,7 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
       ) : null}
       {sheet?.loose.length ? <p className="fore-alert warn">{sheet.loose.length === 1 ? 'One booking is' : `${sheet.loose.length} bookings are`} on a tee time that’s no longer on the sheet: {sheet.loose.map((b) => `${b.contactName} at ${formatTime(b.time)}`).join(', ')}. Move {sheet.loose.length === 1 ? 'it' : 'them'} to another time.</p> : null}
       {!sheet ? <p className="fore-empty">Loading the tee sheet…</p> : !L || !allTimes.length ? <p className="fore-empty">No tee times on this day. Check the tee times in Settings.</p> : !times.length ? <p className="fore-empty">No available slots left on this day. <button className="fore-link" onClick={toggleOpen}>Show all slots</button></p> : (
-        <div className={`fore-sheet tees-${tees.length}`}>
+        <div className={`fore-sheet tees-${tees.length}`} ref={sheetBox}>
           <div className="fore-sheet-head">
             <span>Tee time</span>
             {tees.map((t) => <span key={t}>{tees.length > 1 ? `From tee ${t}` : 'Flight'}</span>)}
@@ -221,6 +232,16 @@ function Flight({ c, onAdd, onOpen }: { c: StaffSlot; onAdd?: (c: StaffSlot) => 
       {bookable ? <button className={`fore-book${c.state === 'held' ? ' held' : ''}`} onClick={() => onAdd?.(c)} aria-label={`Book ${formatTime(c.time)}, tee ${c.startTee}${c.state === 'held' ? ', held' : ''}`}>{c.state === 'held' ? 'Book held time' : 'Book'}</button> : null}
     </div>
   );
+}
+
+/** Scrolls the page so a row sits just under the frozen top (title, date strip, summary and column headings). */
+function scrollUnderHeader(row: HTMLElement, head: HTMLElement | null) {
+  let box: HTMLElement | null = row.parentElement;
+  while (box && !(/(auto|scroll)/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight)) box = box.parentElement;
+  // Where the headings stop once frozen: their sticky top plus their height, from the top of the scrolling area.
+  const frozen = (box ? box.getBoundingClientRect().top : 0) + (head ? (parseFloat(getComputedStyle(head).top) || 0) + head.offsetHeight : 0);
+  const by = row.getBoundingClientRect().top - frozen;
+  if (box) box.scrollTop += by; else window.scrollBy(0, by);
 }
 
 /**

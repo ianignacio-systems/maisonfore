@@ -118,7 +118,8 @@ export function quote(setup: CourseSetup, r: QuoteRequest): Quote {
   const caddie = pick('caddie');
   const caddies = !caddie ? 0 : caddie.required ? n : clamp(r.caddies, n);
   const gallery = clamp(r.gallery, setup.options.galleryMax);
-  const galleryFee = pick('gallery');
+  // Gallery is switched on by the most-guests setting (0 = no gallery); its fee is charged whenever guests are allowed.
+  const galleryFee = setup.options.galleryMax > 0 ? (pick('gallery') ?? setup.fees.find((f) => f.kind === 'gallery')) : undefined;
 
   const counted = (f: Fee, qty: number, label: string) => {
     if (!qty) return;

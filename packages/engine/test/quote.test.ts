@@ -87,6 +87,15 @@ describe('quote', () => {
     expect(quote(ph, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['LOC'] }).lines.some((l) => l.feeId === 'LOCK')).toBe(false);
   });
 
+  it('charges gallery guests whenever gallery is allowed, even if the fee was saved switched off', () => {
+    const off = { ...ph, fees: ph.fees.map((f) => (f.kind === 'gallery' ? { ...f, active: false } : f)) };
+    const q = quote(off, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['LOC'], gallery: 2 });
+    expect(q.lines.find((l) => l.feeId === 'GAL')?.qty).toBe(2);
+    const none = quote({ ...off, options: { ...off.options, galleryMax: 0 } }, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['LOC'], gallery: 2 });
+    expect(none.gallery).toBe(0);
+    expect(none.lines.some((l) => l.feeId === 'GAL')).toBe(false);
+  });
+
   it('flags player types outside their days or hours, and missing green fees', () => {
     expect(quote(ph, { layoutId: 'L18', day: WED, time: 420, holes: 18, players: ['SEN'] }).problems).toEqual([]);
     expect(quote(ph, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['SEN'] }).problems).toContain('Senior rates are for Wednesdays only.');

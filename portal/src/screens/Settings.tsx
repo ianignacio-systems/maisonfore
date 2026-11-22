@@ -327,7 +327,8 @@ function FeesPane({ data, reload }: { data: CourseData; reload: () => Promise<vo
         const [t, h, dt] = k.split('|');
         if ((split ? t !== '*' : t === '*') && isAmount(v)) amounts.push({ holes: Number(h) as 9 | 18, dayType: dt as 'weekday' | 'weekend', playerTypeId: t === '*' ? null : t, amount: toCentavos(v) });
       }
-      return { ...f, amounts };
+      // The gallery fee is on whenever gallery guests are allowed.
+      return { ...f, amounts, ...(f.kind === 'gallery' ? { active: opts.galleryMax > 0, required: false } : {}) };
     }).filter((f) => f.kind === 'other' || f.active || f.amounts.length);
     void run([[`/courses/${data.course.id}/fees`, { fees: out }], [`/courses/${data.course.id}/options`, opts]]);
   };
