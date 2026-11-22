@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { counterSplit, formatDay, localParts, peso, weekday } from '@maison/engine';
-import { api, teeFor, teeTimes, type MyBooking, type Times } from '../api';
+import { api, teeFor, teeTimes, type MyBooking, type Times, type WaitEntry } from '../api';
 import { Button, clock, Days, go, Pass, PriceList, Sheet, SHORT, shortDay } from '../ui';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -10,8 +10,14 @@ export function Bookings() {
   const [list, setList] = useState<MyBooking[] | null>(null);
   const [open, setOpen] = useState<MyBooking | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const load = useCallback(() => api<MyBooking[]>('/bookings').then((r) => { setList(r); setProblem(null); }).catch((e) => setProblem((e as Error).message)), []);
-  useEffect(() => { void load(); }, [load]);
+  const [waits, setWaits] = useState<WaitEntry[]>([]);
+  const load = useCallback(() => Promise.all([
+    api<MyBooking[]>('/bookings').then((r) => { setList(r); setProblem(null); }),
+    api<WaitEntry[]>('/waitlist').then(setWaits),
+  ]).catch((e) => setProblem((e as Error).message)), []);
+  // Offers come and go by the minute: check again every half minute while this screen is open.
+  useEffect(() => { void load(); const t = setInterval(() => void load(), 30_000); return () => clearInterval(t); }, [load]);
+  const leave = async (w: WaitEntry) => { try { await api(`/waitlist/${w.id}/leave`, { method: 'POST' }); void load(); } catch (e) { setProblem((e as Error).message); } };
   const upcoming = list?.filter((b) => b.upcoming) ?? [];
   const past = list?.filter((b) => !b.upcoming) ?? [];
 
@@ -19,8 +25,33 @@ export function Bookings() {
     <div className="pl-page">
       <header className="pl-head"><p className="pl-kicker">Your rounds</p><h1>Bookings</h1></header>
       {problem ? <p className="pl-err">{problem}</p> : null}
+      {waits.length ? (
+        <>
+          <h2 className="pl-section">Waitlist</h2>
+          <ul className="pl-waits">
+            {waits.map((w) => (
+              <li key={w.id} className={`pl-wait s-${w.status}`}>
+                {w.offer ? (
+                  <>
+                    <span className="pl-wait-top"><b>{clock(w.offer.time)} opened up for you</b><Countdown until={w.offer.until} /></span>
+                    <span className="pl-muted">{w.course.name}, {shortDay(w.day)}, {w.offer.free} {w.offer.free === 1 ? 'player' : 'players'}. It’s held for you; if you don’t book it, it goes to the next golfer.</span>
+                    <span className="pl-actions"><Button onClick={() => go(`/c/${w.course.slug}?day=${w.day}&offer=${w.id}`)}>Book it</Button><Button kind="quiet" onClick={() => void leave(w)}>No thanks</Button></span>
+                  </>
+                ) : (
+                  <>
+                    <span className="pl-wait-top"><b>{w.course.name}</b><span className="pl-wait-tag">{w.status === 'missed' ? 'Offer passed' : 'Waiting'}</span></span>
+                    <span className="pl-muted">{shortDay(w.day)}, {clock(w.from)} to {clock(w.to)}, {w.players} {w.players === 1 ? 'player' : 'players'}</span>
+                    {w.status === 'missed' ? <span className="pl-muted small">You didn’t book the time offered in time, so it went to the next golfer.</span> : null}
+                    <span className="pl-actions"><Button kind="quiet" onClick={() => void leave(w)}>{w.status === 'missed' ? 'Clear' : 'Leave the waitlist'}</Button></span>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {!list ? <p className="pl-muted pl-pad">Loading…</p> : !list.length ? (
-        <div className="pl-empty"><b>No bookings yet</b><p>Find a course and book your first tee time.</p><Button onClick={() => go('/')}>Find a course</Button></div>
+        waits.length ? null : <div className="pl-empty"><b>No bookings yet</b><p>Find a course and book your first tee time.</p><Button onClick={() => go('/')}>Find a course</Button></div>
       ) : (
         <>
           {upcoming.length ? <h2 className="pl-section">Coming up</h2> : null}
@@ -29,7 +60,8 @@ export function Bookings() {
               <li key={b.id}>
                 <button className="pl-ticket" onClick={() => setOpen(b)}>
                   <span className="stub"><small>{SHORT[weekday(b.day)]}</small><b>{Number(b.day.slice(8))}</b><small>{MON[Number(b.day.slice(5, 7)) - 1]}</small></span>
-                  <span className="what"><span className="tm">{clock(b.time)}</span><b>{b.course.name}</b><small>{b.players} {b.players === 1 ? 'player' : 'players'}, {b.holes} holes{b.layoutName ? `, ${b.layoutName}` : ''}</small></span>
+                  <span className="what"><span className="tm">{clock(b.time)}</span><b>{b.course.name}</b><small>{b.players} {b.players === 1 ? 'player' : 'players'}, {b.holes} holes{b.layoutName ? `, ${b.layoutName}` : ''}</small>
+                    {b.lapsed ? <small className="pl-lapsed">Not paid in time: open to others</small> : b.payBy ? <small className="pl-due">Pay by {b.payBy}{b.payByDay !== b.day && b.payByDay ? `, ${shortDay(b.payByDay)}` : ''}</small> : null}</span>
                   <span className="ref">{b.ref}</span>
                 </button>
               </li>
@@ -66,7 +98,12 @@ function Ticket({ b, onClose, onChanged }: { b: MyBooking; onClose: () => void; 
       {b.upcoming && mode === 'view' ? (
         <Pass code={b.ref} course={b.course.name} when={`${shortDay(b.day)}, ${clock(b.time)}`}
           detail={`${b.players} ${b.players === 1 ? 'player' : 'players'}, ${b.holes} holes${b.startTee !== '1' ? `, from tee ${b.startTee}` : ''}`} />
-      ) : <p className={`pl-status s-${b.status}`}>{b.statusWords}</p>}
+      ) : null}
+      {b.upcoming && mode === 'view' && b.lapsed ? (
+        <p className="pl-lapsed-box"><b>Not paid in time.</b> Your tee time is open to other golfers now. If it’s still free when you arrive, pay at the counter to keep it.</p>
+      ) : b.upcoming && mode === 'view' && b.payBy ? (
+        <p className="pl-payby"><b>Arrive and pay {peso(counterSplit(b.quote, true).total)} by {b.payBy}{b.payByDay !== b.day && b.payByDay ? `, ${shortDay(b.payByDay)}` : ''}.</b> After that your tee time opens to other golfers.</p>
+      ) : !(b.upcoming && mode === 'view') ? <p className={`pl-status s-${b.status}`}>{b.statusWords}</p> : null}
       {mode === 'view' ? (
         <>
           <dl className="pl-facts">
@@ -126,4 +163,13 @@ function MoveTime({ b, onBack, onDone }: { b: MyBooking; onBack: () => void; onD
       <Button kind="line" onClick={onBack}>Back</Button>
     </div>
   );
+}
+
+/** Minutes and seconds left on an offer. */
+function Countdown({ until }: { until: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const left = Math.max(0, until - now);
+  const m = Math.floor(left / 60_000), sec = Math.floor((left % 60_000) / 1000);
+  return <span className="pl-countdown" aria-label={`${m} minutes left`}>{left ? `${m}:${String(sec).padStart(2, '0')} left` : 'Ended'}</span>;
 }

@@ -1,6 +1,6 @@
 import { audit, NotFound, UserError, type Caller, type Db } from '@maison/core';
 import {
-  buildSheet, dayType, formatDay, formatTime, golferCanChange, isOpen, localParts, opensMessage, priceFor, publicWindow, STATUS_WORDS,
+  buildSheet, dayType, dueByNow, formatDay, formatTime, golferCanChange, isOpen, isPencil, lapsedUnpaid, localParts, opensMessage, priceFor, publicWindow, STATUS_WORDS,
   type CourseSetup,
 } from '@maison/engine';
 import {
@@ -39,13 +39,13 @@ export async function saveProfile(db: Db, c: Caller, input: Record<string, unkno
   return golferProfile(db, c);
 }
 
-async function needProfile(db: Db, c: Caller): Promise<Golfer> {
+export async function needProfile(db: Db, c: Caller): Promise<Golfer> {
   const { profile } = await golferProfile(db, c);
   if (!profile) throw new UserError('Finish your profile first: your name, mobile number, and whether you’re local or foreign.');
   return profile;
 }
 
-async function liveCourseId(db: Db, slug: string): Promise<string> {
+export async function liveCourseId(db: Db, slug: string): Promise<string> {
   const [r] = await db.query<{ id: string }>(
     "select b.id from slugs s join businesses b on b.id = s.business_id join courses c on c.business_id = b.id where s.slug = $1 and c.status = 'live'", [slug.toLowerCase()]);
   if (!r) throw new NotFound('This course isn’t taking bookings in the app.');
@@ -53,7 +53,14 @@ async function liveCourseId(db: Db, slug: string): Promise<string> {
 }
 
 /** The public player types a golfer can book as, Local first for locals and Foreign first for foreigners. */
-const publicTypes = (s: CourseSetup) => s.playerTypes.filter((t) => t.public && t.active && !t.member);
+export const publicTypes = (s: CourseSetup) => s.playerTypes.filter((t) => t.public && t.active && !t.member);
+
+/** The player type a golfer books as by default: Local or Foreign, by what they told us. */
+export function typeFor(s: CourseSetup, residency: 'local' | 'foreign'): string {
+  const types = publicTypes(s);
+  const want = residency === 'foreign' ? /foreign|non.?resident|tourist/i : /local|resident|filipino/i;
+  return (types.find((t) => want.test(t.name)) ?? types[0])?.id ?? '';
+}
 
 /** The lowest public 18-hole green fee on a day: "from ₱3,300". */
 function fromPrice(s: CourseSetup, d: string): number | null {
@@ -61,7 +68,7 @@ function fromPrice(s: CourseSetup, d: string): number | null {
   return prices.length ? Math.min(...prices) : null;
 }
 
-async function publicSlots(db: Db, courseId: string, s: CourseSetup, d: string, now: number) {
+export async function publicSlots(db: Db, courseId: string, s: CourseSetup, d: string, now: number) {
   const bookings = (await db.query(`select ${BOOKING_COLS} from bookings where business_id = $1 and day = $2`, [courseId, d])).map(bookingOf);
   const blocks = (await db.query('select * from blocks where business_id = $1 and day = $2 and removed_at is null', [courseId, d])).map((r) => ({
     id: r.id as string, layoutId: (r.layout_id as string) ?? null, startTee: (r.start_tee as string) ?? null, day: r.day as string, from: r.from_min as number,
@@ -139,10 +146,17 @@ export async function courseTimes(db: Db, slug: string, input: { day?: unknown }
 async function golferCounts(db: Db, c: Caller, courseId: string, now: number) {
   const mine = (await db.query(`select ${BOOKING_COLS} from bookings where business_id = $1 and golfer_account = $2`, [courseId, c.accountId])).map(bookingOf);
   const since = localParts(now - 90 * 86_400_000, 'Asia/Manila').day;
-  return { openBookings: mine.filter((b) => isOpen(b, now)).length, recentNoShows: mine.filter((b) => b.status === 'no_show' && b.day >= since).length };
+  const setup = await loadSetup(db, courseId);
+  // A booking never paid whose tee time went by counts as a no-show, like one marked by staff.
+  return { openBookings: mine.filter((b) => isOpen(b, now)).length, recentNoShows: mine.filter((b) => b.day >= since && (b.status === 'no_show' || lapsedUnpaid(setup, b, now))).length };
 }
 
-/** A golfer books in the app: the app's rules apply (window, minimum players, open-bookings and no-show limits), paid at the course for now. */
+/**
+ * A golfer books in the app: the app's rules apply (window, minimum players, open-bookings and no-show limits),
+ * paid at the course for now, by the club's pay deadline. With `offerId`, the golfer takes a time the
+ * waitlist is holding for them: the hold is let go and the booking made in one step, so nobody else can
+ * take it in between.
+ */
 export async function golferBook(db: Db, c: Caller, slug: string, input: Record<string, unknown>, now = Date.now()): Promise<BookingRow> {
   const g = await needProfile(db, c);
   const courseId = await liveCourseId(db, slug);
@@ -154,8 +168,18 @@ export async function golferBook(db: Db, c: Caller, slug: string, input: Record<
   const names = playerNamesOf(setup, input, w.players, g.name);
   const notes = text(input.notes, 'the note', { max: 300 });
   const counts = await golferCounts(db, c, courseId, now);
+  const offerId = input.offerId ? text(input.offerId, 'the waitlist offer', { max: 40 }) : null;
   return db.tx(async (q) => {
     await lockSlot(q, courseId, w.layoutId, w.startTee, w.day, w.time);
+    if (offerId) {
+      const [o] = await q.query(`select w.booking_id, w.offer_expires_at, bk.layout_id, bk.start_tee, bk.day, bk.time_min, bk.status from waitlist w
+         join bookings bk on bk.business_id = w.business_id and bk.id = w.booking_id
+        where w.business_id = $1 and w.id = $2 and w.golfer_account = $3 and w.status = 'offered' for update`, [courseId, offerId, c.accountId]);
+      if (!o || o.status !== 'held' || Number(o.offer_expires_at) <= now) throw new UserError('This offer has ended. The time went to the next golfer in line.');
+      if (o.layout_id !== w.layoutId || o.start_tee !== w.startTee || o.day !== w.day || o.time_min !== w.time) throw new UserError('Book the time you were offered.');
+      await q.query("update bookings set status = 'expired', updated_at = $3 where business_id = $1 and id = $2", [courseId, o.booking_id, now]);
+      counts.openBookings = Math.max(0, counts.openBookings - 1); // the hold was counted as one of theirs
+    }
     await checkSlot(q, setup, courseId, w, now, undefined, counts);
     const price = priceOf(setup, w, pick);
     if (price.problems.length) throw new UserError(price.problems[0]);
@@ -164,15 +188,19 @@ export async function golferBook(db: Db, c: Caller, slug: string, input: Record<
     const ref = await insertRef(q, courseId);
     await q.query(
       `insert into bookings (business_id, id, ref, layout_id, start_tee, day, time_min, players, status, channel, golfer_account, contact_name, mobile, email, notes,
-        amount, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app)
-        values ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', 'app', $9, $10, $11, $12, $13, $14, $15, $16, $16, $17, $18, $19, $20, $21, $22, 0)`,
+        amount, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, pay_due_by)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed', 'app', $9, $10, $11, $12, $13, $14, $15, $16, $16, $17, $18, $19, $20, $21, $22, 0, $23)`,
       [courseId, id, ref, w.layoutId, w.startTee, w.day, w.time, w.players, c.accountId, g.name, g.mobile, c.email, notes, price.total, c.email, now,
-        price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines)]);
+        price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines),
+        dueByNow(setup, { ...w, channel: 'app' }, now, now)]);
     for (let n = 1; n <= w.players; n++) {
       await q.query('insert into booking_players (business_id, booking_id, n, name, player_type_id, rate) values ($1, $2, $3, $4, $5, $6)',
         [courseId, id, n, names[n - 1], pick.types[n - 1], each[n - 1]]);
     }
-    await audit(q, courseId, c.email, 'booking.app', `${ref} · ${g.name}`, `${formatDay(w.day)} ${formatTime(w.time)}, ${w.players} players, booked in the app`, null, now);
+    await audit(q, courseId, c.email, 'booking.app', `${ref} · ${g.name}`, `${formatDay(w.day)} ${formatTime(w.time)}, ${w.players} players, booked in the app${offerId ? ' from the waitlist' : ''}`, null, now);
+    // Booked: they no longer need to wait for a time that day.
+    await q.query(`update waitlist set status = 'booked', booking_id = $4, updated_at = $5 where business_id = $1 and golfer_account = $2 and day = $3 and status in ('waiting', 'offered')`,
+      [courseId, c.accountId, w.day, id, now]);
     return getBookingIn(q, courseId, id);
   });
 }
@@ -183,7 +211,8 @@ export async function myBookings(db: Db, c: Caller, now = Date.now()) {
   const rows = await db.query(
     `select ${BOOKING_COLS.split(',').map((x) => `bk.${x.trim()}`).join(', ')}, b.name as course_name, b.slug as course_slug, c.phone as course_phone, c.time_zone
        from bookings bk join businesses b on b.id = bk.business_id join courses c on c.business_id = bk.business_id
-      where bk.golfer_account = $1 and bk.day >= $2 order by bk.day, bk.time_min`, [c.accountId, since]);
+      where bk.golfer_account = $1 and bk.day >= $2 and bk.created_by <> 'waitlist' order by bk.day, bk.time_min`, [c.accountId, since]);
+  // (A time the waitlist holds for the golfer shows in their waitlist, not as a booking, until they book it.)
   const setups = new Map<string, CourseSetup>();
   const out = [];
   for (const r of rows) {
@@ -201,6 +230,9 @@ export async function myBookings(db: Db, c: Caller, now = Date.now()) {
       roster: names.map((p) => ({ name: p.name, type: s.playerTypes.find((t) => t.id === p.player_type_id)?.name ?? '' })),
       upcoming: b.day >= today && (b.status === 'confirmed' || b.status === 'held'),
       canChange: golferCanChange(s, b, now), cutoffHours: s.rules.cancelCutoffHours,
+      // Pay by (shown in the course's time), and whether that has passed without payment.
+      payDueBy: b.payStatus === 'unpaid' ? b.payDueBy : null, payBy: b.payStatus === 'unpaid' && b.payDueBy ? formatTime(localParts(b.payDueBy, s.timeZone).minutes) : null,
+      payByDay: b.payStatus === 'unpaid' && b.payDueBy ? localParts(b.payDueBy, s.timeZone).day : null, lapsed: b.payStatus === 'unpaid' && isPencil(b, now),
     });
   }
   return out.sort((a, b) => Number(b.upcoming) - Number(a.upcoming) || (a.upcoming ? a.day.localeCompare(b.day) || a.time - b.time : b.day.localeCompare(a.day)));

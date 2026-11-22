@@ -1,28 +1,47 @@
-Changed or new files (27):
+Changed or new files (46):
   README.md
+  SETUP.md
   app/index.html
   app/public/manifest.webmanifest
+  app/public/sw.js
+  app/src/App.tsx
   app/src/api.ts
   app/src/main.tsx
   app/src/play.css
+  app/src/push.ts
   app/src/screens/Bookings.tsx
   app/src/screens/Course.tsx
   app/src/screens/Find.tsx
+  app/src/screens/Inbox.tsx
+  app/src/screens/Profile.tsx
   app/src/screens/SignIn.tsx
   app/src/ui.tsx
+  package-lock.json
   packages/engine/src/quote.ts
   packages/engine/src/sheet.ts
   packages/engine/src/status.ts
+  packages/engine/src/types.ts
   packages/engine/test/engine.test.ts
   packages/engine/test/quote.test.ts
+  portal/src/api.ts
+  portal/src/fore.css
   portal/src/screens/CourseApp.tsx
   portal/src/screens/NewCourse.tsx
   portal/src/screens/Settings.tsx
   portal/src/screens/SignIn.tsx
   portal/src/screens/TeeSheet.tsx
+  portal/src/screens/Waiting.tsx
   portal/src/screens/panels.tsx
+  render.production.yaml
+  render.yaml
+  server/migrations/007_waitlist.sql
+  server/package.json
+  server/src/app.ts
   server/src/bookings.ts
   server/src/courses.ts
   server/src/golf.ts
+  server/src/main.ts
+  server/src/notify.ts
   server/src/overview.ts
+  server/src/waitlist.ts
   server/test/api.test.ts

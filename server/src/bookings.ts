@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { audit, newId, NotFound, UserError, type Caller, type Db } from '@maison/core';
 import {
-  addDays, buildSheet, canChange, checkBooking, golferCanChange, isPencil, paidForCheckIn, daysBetween, formatDay, formatTime, localParts, newRef, priceFor, quote, STATUS_WORDS, takesSlot, teeMoment,
+  addDays, buildSheet, canChange, checkBooking, dueByNow, golferCanChange, isPencil, mustPayNow, paidForCheckIn, payDeadline, daysBetween, formatDay, formatTime, localParts, newRef, priceFor, quote, STATUS_WORDS, takesSlot, teeMoment,
   type Block, type BlockKind, type Booking, type BookingStatus, type Channel, type CourseSetup, type Quote, type QuoteLine, type Slot,
 } from '@maison/engine';
 import { day, int, minutes, mobile, oneOf, text } from './check';
@@ -54,7 +54,8 @@ async function sheetSeq(db: Db, courseId: string): Promise<number> {
        (select coalesce(max(seq), 0) from blocks where business_id = $1),
        (select coalesce(max(seq), 0) from courses where business_id = $1),
        (select coalesce(max(seq), 0) from layouts where business_id = $1),
-       (select coalesce(max(seq), 0) from sheet_settings where business_id = $1)) as seq`, [courseId]);
+       (select coalesce(max(seq), 0) from sheet_settings where business_id = $1),
+       (select coalesce(max(seq), 0) from waitlist where business_id = $1)) as seq`, [courseId]);
   return r.seq;
 }
 
@@ -121,11 +122,6 @@ export function playerNamesOf(setup: CourseSetup, input: Record<string, unknown>
   return names;
 }
 
-/** When an unpaid phone, Viber or walk-in booking stops holding its tee time; null = no limit. */
-function graceEnd(setup: CourseSetup, channel: string, now: number): number | null {
-  const h = setup.rules.paymentGraceHours;
-  return h !== null && (channel === 'phone' || channel === 'viber' || channel === 'walkin') ? now + h * 3_600_000 : null;
-}
 
 /** What the booking includes besides the slot: holes, each player's type, carts, caddies, gallery, optional fees. */
 interface Pick { holes: 9 | 18; types: string[]; carts: number; caddies: number; gallery: number; extras: string[] }
@@ -165,6 +161,9 @@ export async function insertRef(q: Db, courseId: string): Promise<string> {
 /**
  * Staff booking (TEE-2, PTR-6): phone, Viber or walk-in, straight onto the sheet. `hold: true` keeps
  * the slot as a hold instead (TEE-3), to be confirmed within the course's hold time.
+ * Payment: a same-day walk-in, or a booking made after its pay deadline, must pay on the spot: it is held
+ * for the pay-now window and confirmed when the payment is recorded. Others keep their time until the
+ * club's pay deadline (a set time before the tee time, and/or within some days of booking).
  */
 export async function createBooking(db: Db, c: Caller, courseId: string, input: Record<string, unknown>, now = Date.now()): Promise<BookingRow> {
   await roleAt(db, c, courseId, CAN.daily);
@@ -176,6 +175,8 @@ export async function createBooking(db: Db, c: Caller, courseId: string, input: 
   const setup = await loadSetup(db, courseId);
   const names = playerNamesOf(setup, input, w.players, contactName);
   const pick = pickOf(setup, input, w.players);
+  const payNow = !hold && mustPayNow(setup, { ...w, channel }, now);
+  const held = hold || payNow;
   return db.tx(async (q) => {
     await lockSlot(q, courseId, w.layoutId, w.startTee, w.day, w.time);
     await checkSlot(q, setup, courseId, w, now);
@@ -183,19 +184,24 @@ export async function createBooking(db: Db, c: Caller, courseId: string, input: 
     const each = greenFees(setup, w, price, pick.types);
     const id = newId();
     const ref = await insertRef(q, courseId);
-    const payDueBy = hold ? null : graceEnd(setup, channel, now);
+    const payDueBy = held ? null : payDeadline(setup, { ...w, channel }, now);
     await q.query(
       `insert into bookings (business_id, id, ref, layout_id, start_tee, day, time_min, players, status, channel, hold_expires_at, contact_name, mobile, email, notes,
         amount, created_by, created_at, updated_at, holes, carts, caddies, gallery, extras, quote, pay_in_app, pay_due_by)
         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
-      [courseId, id, ref, w.layoutId, w.startTee, w.day, w.time, w.players, hold ? 'held' : 'confirmed', channel, hold ? now + setup.rules.holdMinutes * 60_000 : null,
+      [courseId, id, ref, w.layoutId, w.startTee, w.day, w.time, w.players, held ? 'held' : 'confirmed', channel, held ? now + setup.rules.holdMinutes * 60_000 : null,
         contactName, contact.mobile, contact.email, contact.notes, price.total, c.email, now,
         price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines), price.payInApp, payDueBy]);
     for (let n = 1; n <= w.players; n++) {
       await q.query('insert into booking_players (business_id, booking_id, n, name, player_type_id, rate) values ($1, $2, $3, $4, $5, $6)',
         [courseId, id, n, names[n - 1], pick.types[n - 1], each[n - 1]]);
     }
-    await audit(q, courseId, c.email, hold ? 'booking.held' : 'booking.created', `${ref} · ${contactName}`, `${formatDay(w.day)} ${formatTime(w.time)}, ${w.players} players, ${price.holes} holes, ${channel}`, null, now);
+    // Seated from the counter's standby list.
+    if (input.standbyId) {
+      await q.query("update waitlist set status = 'booked', booking_id = $3, updated_at = $4 where business_id = $1 and id = $2 and kind = 'standby' and status = 'waiting'",
+        [courseId, text(input.standbyId, 'the standby group', { max: 40 }), id, now]);
+    }
+    await audit(q, courseId, c.email, hold ? 'booking.held' : 'booking.created', `${ref} · ${contactName}`, `${formatDay(w.day)} ${formatTime(w.time)}, ${w.players} players, ${price.holes} holes, ${channel}${payNow ? ', pay now' : ''}`, null, now);
     return getBookingIn(q, courseId, id);
   });
 }
@@ -245,9 +251,10 @@ export async function changeStatus(db: Db, c: Caller, courseId: string, id: stri
     if (to === 'cancelled' && !reason) throw new UserError('Add a reason for cancelling.');
     await q.query('update bookings set status = $3, hold_expires_at = null, cancel_reason = $4, updated_at = $5 where business_id = $1 and id = $2',
       [courseId, id, to, to === 'cancelled' ? reason : b.cancelReason, now]);
-    // A hold confirmed by staff starts its time to pay now.
+    // A hold confirmed by staff without payment gets the club's pay deadline, unless that has already gone by.
     if (b.status === 'held' && to === 'confirmed' && b.payStatus === 'unpaid') {
-      await q.query('update bookings set pay_due_by = $3 where business_id = $1 and id = $2', [courseId, id, graceEnd(setup, b.channel, now)]);
+      const due = payDeadline(setup, b, now);
+      await q.query('update bookings set pay_due_by = $3 where business_id = $1 and id = $2', [courseId, id, due !== null && due > now ? due : null]);
     }
     await audit(q, courseId, c.email, `booking.${to}`, said(b), `${STATUS_WORDS[b.status]} → ${STATUS_WORDS[to]}${reason ? `: ${reason}` : ''}`, null, now);
     if (b.channel === 'app' && (to === 'cancelled' || to === 'no_show')) {
@@ -276,9 +283,11 @@ export async function moveBooking(db: Db, c: Caller, courseId: string, id: strin
     const each = greenFees(setup, w, price, pick.types);
     await q.query(
       `update bookings set layout_id = $3, start_tee = $4, day = $5, time_min = $6, players = $7, amount = $8, updated_at = $9,
-         holes = $10, carts = $11, caddies = $12, gallery = $13, extras = $14, quote = $15, pay_in_app = $16, special = false where business_id = $1 and id = $2`,
+         holes = $10, carts = $11, caddies = $12, gallery = $13, extras = $14, quote = $15, pay_in_app = $16, special = false, pay_due_by = $17 where business_id = $1 and id = $2`,
       [courseId, id, w.layoutId, w.startTee, w.day, w.time, w.players, price.total, now,
-        price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines), price.payInApp]);
+        price.holes, price.carts, price.caddies, price.gallery, JSON.stringify(pick.extras), JSON.stringify(price.lines), price.payInApp,
+        // An unpaid booking's deadline follows it to the new tee time.
+        b.payStatus === 'unpaid' && b.status === 'confirmed' ? dueByNow(setup, { ...w, channel: b.channel }, b.createdAt, now) : b.payDueBy]);
     await q.query('delete from booking_players where business_id = $1 and booking_id = $2 and n > $3', [courseId, id, w.players]);
     for (let n = 1; n <= w.players; n++) {
       await q.query(
@@ -321,6 +330,7 @@ export async function recordPayment(db: Db, c: Caller, courseId: string, id: str
     const b = await lockBooking(q, courseId, id);
     if (b.payStatus === 'paid_online') throw new UserError('This booking was already paid in the app.');
     if (b.status === 'cancelled' || b.status === 'expired') throw new UserError('This booking is not active.');
+    if (b.status === 'held' && b.holdExpiresAt !== null && b.holdExpiresAt <= now) throw new UserError('This hold ran out and the time was released. Make the booking again.');
     if (isPencil(b, now) && !b.special) {
       // Paying a pencil booking puts it back on its time, if the time still has room for it.
       const setup = await loadSetup(q, courseId);
@@ -331,6 +341,8 @@ export async function recordPayment(db: Db, c: Caller, courseId: string, id: str
     }
     await q.query("update bookings set pay_status = 'paid_course', paid_amount = $3, paid_method = $4, paid_ref = $5, updated_at = $6, pay_due_by = null where business_id = $1 and id = $2",
       [courseId, id, amount, method, ref, now]);
+    // Paying a booking held for payment (pay now, or a waitlist offer) confirms it.
+    if (b.status === 'held') await q.query("update bookings set status = 'confirmed', hold_expires_at = null where business_id = $1 and id = $2", [courseId, id]);
     await audit(q, courseId, c.email, 'booking.paid', said(b), `₱${(amount / 100).toFixed(2)} ${method}${ref ? ` ${ref}` : ''}`, null, now);
     return getBookingIn(q, courseId, id);
   });

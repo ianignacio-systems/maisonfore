@@ -63,11 +63,34 @@ Supabase → the **MaisonPOS** project → **Authentication → URL Configuratio
    account works) and book a time; it shows up on the tee sheet straight away. Only approved courses are
    listed. To put it on the home screen: Safari → Share → **Add to Home Screen**; Chrome → ⋮ → **Install app**.
 
+## A5. Phone alerts for golfers (optional)
+
+Golfers on the waitlist get offered times that open up, and app golfers get a reminder before their pay
+deadline. They always see these in the app's Messages; phone alerts make them buzz the phone too.
+
+1. On any computer with Node.js, run `npx web-push generate-vapid-keys`. It prints a **Public Key** and a
+   **Private Key**. Keep the private key to yourself: don't paste it into chats, email or code.
+2. Render → the **maisonfore** service → **Environment** → add:
+
+   | Variable | Value |
+   | --- | --- |
+   | `VAPID_PUBLIC_KEY` | the Public Key |
+   | `VAPID_PRIVATE_KEY` | the Private Key |
+   | `VAPID_SUBJECT` | `mailto:` and an email push services can reach you at, e.g. `mailto:you@example.com` |
+
+3. **Save, rebuild and deploy.** Golfers then turn alerts on in the app (Messages or Profile). On iPhone the app
+   must first be added to the home screen (Share → **Add to Home Screen**), then opened from there.
+
+Keep the same keys from then on: new keys mean every golfer has to turn alerts on again.
+
 ## Good to know
 
 - **Updates**: every `git push` to `main` rebuilds the site by itself.
 - **Sleeping**: the free web service sleeps after 15 minutes without visitors; the first visit after that
   takes about a minute. To keep it awake, change its instance type to **Starter**.
+- **The server's minute round** releases holds that ran out, offers opened times to the waitlist, reminds golfers
+  to pay and sends phone alerts. While the free service sleeps, that round stops too, so for real use (and for
+  testing the waitlist properly) use **Starter**.
 - **The free database expires after 30 days** (then 14 days' grace before it is deleted). To keep the test
   data, upgrade **maisonfore-db** to a paid plan before then.
 - **If you sign in but every page says to sign in again**, the MaisonPOS project still uses the older JWT
@@ -118,7 +141,7 @@ MaisonFore uses the same four accounts as MaisonPOS: **Supabase**, **Render** (S
 ## First use
 
 1. Open `maisonfore.com`, sign in with your Maison account (your MaisonPOS email and password work).
-2. **Add your course**, then **Settings**: tee slots, players and green fees (local, foreign, senior…, 9 and 18 holes), carts, caddies and fees, booking rules, holidays and the course page.
+2. **Add your course**, then **Settings**: tee times, players and green fees (local, foreign, senior…, 9 and 18 holes), carts, caddies and fees, booking rules, holidays and the course page.
 3. **Go live → Send to Maison for review**. A Maison admin approves it at `maisonfore.com/admin`.
 4. Staff use **Tee sheet** for phone, Viber and walk-in bookings from day one, before approval.
 5. Once approved, golfers find the course at `maisonfore.com/play`.

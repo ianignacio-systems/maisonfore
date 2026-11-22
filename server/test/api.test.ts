@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { everyMinute } from '../src/waitlist';
 import { at, PARTNER, testServer } from './helpers';
 
 const OWNER = 'owner@valley.ph', STARTER = 'starter@valley.ph', ADMIN = 'admin@maison.ph', OTHER = 'someone@else.ph';
@@ -375,41 +376,67 @@ describe('player names', () => {
   });
 });
 
-describe('time to pay and pencil bookings', () => {
+describe('paying by a set time before the tee time, and pencil bookings', () => {
   const DAY = '2026-12-01';
-  it('turns an unpaid phone booking into a pencil booking when the time to pay runs out', async () => {
+  it('gives an unpaid phone booking until the club’s deadline before its tee time, then makes it a pencil booking', async () => {
     const c = await t.call(OWNER, 'GET', `/courses/${id}`);
-    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: 2 });
+    const r = await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payBeforeMinutes: 60 });
+    expect(r.body).toMatchObject({ payBeforeMinutes: 60, payWithinDays: null, waitlistClaimMinutes: 15 });
     const start = t.clock.now;
     const b = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 360, players: 4, contactName: 'Late payer', channel: 'phone' });
-    expect(b.body.payDueBy).toBe(start + 2 * 3_600_000);
+    expect(b.body).toMatchObject({ status: 'confirmed', payDueBy: at(DAY, '05:00') });
     const before = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 360, players: 1, contactName: 'Hopeful' });
     expect(before.body.error).toMatch(/full/);
-    t.clock.now = start + 2 * 3_600_000 + 1;
+    t.clock.now = at(DAY, '05:00') + 1;
     const sheet = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
     const slot = sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 360 && s.startTee === '1');
     expect(slot).toMatchObject({ state: 'open', free: 4 });
     expect(slot.bookings.map((x: { contactName: string }) => x.contactName)).toEqual(['Late payer']);
     expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${b.body.id}/check-in`)).body.error).toMatch(/pencil booking/);
-    const other = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 360, players: 2, contactName: 'Took the time' });
+    const other = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 360, players: 2, contactName: 'Took the time', channel: 'staff' });
     expect(other.status).toBe(200);
     const pay = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${b.body.id}/payment`, { amount: 100000, method: 'cash' });
     expect(pay.body.error).toMatch(/Someone else has booked/);
     t.clock.now = start;
-    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: null });
   });
-  it('puts a pencil booking back on its time when it is paid and the time still has room', async () => {
+  it('takes the earlier deadline when the club also asks for payment within some days of booking', async () => {
     const c = await t.call(OWNER, 'GET', `/courses/${id}`);
-    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: 1 });
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payBeforeMinutes: 60, payWithinDays: 2 });
     const start = t.clock.now;
     const b = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 380, players: 2, contactName: 'Pays late', channel: 'viber' });
-    t.clock.now = start + 3_600_001;
+    expect(b.body.payDueBy).toBe(start + 2 * 86_400_000);
+    t.clock.now = start + 2 * 86_400_000 + 1;
     const pay = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${b.body.id}/payment`, { amount: 100000, method: 'cash' });
-    expect(pay.body).toMatchObject({ payStatus: 'paid_course', payDueBy: null });
+    expect(pay.body).toMatchObject({ payStatus: 'paid_course', payDueBy: null, status: 'confirmed' });
     const sheet = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
     expect(sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 380 && s.startTee === '1')).toMatchObject({ used: 2 });
     t.clock.now = start;
-    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: null });
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payBeforeMinutes: 60, payWithinDays: null });
+  });
+  it('moves the deadline with the booking', async () => {
+    const b = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '10', day: DAY, time: 400, players: 2, contactName: 'Mover', channel: 'phone' });
+    const m = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${b.body.id}/move`, { layoutId, startTee: '10', day: DAY, time: 440 });
+    expect(m.body.payDueBy).toBe(at(DAY, '06:20'));
+  });
+  it('asks same-day walk-ins, and bookings made after the deadline, to pay on the spot', async () => {
+    const start = t.clock.now;
+    t.clock.now = at(DAY, '06:30');
+    const walk = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '10', day: DAY, time: 470, players: 2, contactName: 'At the counter', channel: 'walkin' });
+    expect(walk.body).toMatchObject({ status: 'held', holdExpiresAt: at(DAY, '06:40'), payDueBy: null });
+    const paid = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${walk.body.id}/payment`, { amount: 100000, method: 'cash' });
+    expect(paid.body).toMatchObject({ status: 'confirmed', holdExpiresAt: null, payStatus: 'paid_course' });
+    const late = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '10', day: DAY, time: 450, players: 3, contactName: 'Called late', channel: 'phone' });
+    expect(late.body).toMatchObject({ status: 'held', holdExpiresAt: at(DAY, '06:40') });
+    t.clock.now = at(DAY, '06:41');
+    expect((await t.call(OWNER, 'POST', `/courses/${id}/bookings/${late.body.id}/payment`, { amount: 100000, method: 'cash' })).body.error).toMatch(/hold ran out/);
+    const sheet = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
+    expect(sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 450 && s.startTee === '10')).toMatchObject({ free: 4 });
+    // A walk-in for a later day gets the usual deadline.
+    const later = await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '10', day: '2026-12-02', time: 470, players: 2, contactName: 'Tomorrow', channel: 'walkin' });
+    expect(later.body).toMatchObject({ status: 'confirmed', payDueBy: at('2026-12-02', '06:50') });
+    t.clock.now = start;
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payBeforeMinutes: null, payWithinDays: null });
   });
 });
 
@@ -471,5 +498,121 @@ describe('the golfer app', () => {
     expect(soon.body.error ?? 'ok').toBe('ok');
     expect((await t.call(GOLFER, 'POST', `/golf/bookings/${soon.body.id}/cancel`)).body.error).toMatch(/hours before the tee time/);
     expect((await t.call(OTHER, 'POST', `/golf/bookings/${soon.body.id}/cancel`)).status).toBe(404);
+  });
+});
+
+describe('the counter standby list', () => {
+  const DAY = '2026-12-03';
+  it('keeps groups waiting at the counter, seats them as walk-ins and lets staff remove them', async () => {
+    const start = t.clock.now;
+    t.clock.now = at(DAY, '07:00');
+    expect((await t.call(STARTER, 'POST', `/courses/${id}/standby`, { players: 3, contactName: 'Counter group', mobile: '0917 111 2222' })).body).toEqual({ ok: true });
+    await t.call(STARTER, 'POST', `/courses/${id}/standby`, { players: 2, contactName: 'Second group', from: 600, to: 720 });
+    const list = await t.call(STARTER, 'GET', `/courses/${id}/waiting?day=${DAY}`);
+    expect(list.body.map((w: { contactName: string }) => w.contactName)).toEqual(['Counter group', 'Second group']);
+    const [first, second] = list.body;
+    const seat = await t.call(STARTER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: '1', day: DAY, time: 470, players: 3, contactName: 'Counter group', channel: 'walkin', standbyId: first.id });
+    expect(seat.body).toMatchObject({ status: 'held' });
+    expect((await t.call(STARTER, 'DELETE', `/courses/${id}/waiting/${second.id}`)).body).toEqual({ ok: true });
+    expect((await t.call(STARTER, 'GET', `/courses/${id}/waiting?day=${DAY}`)).body).toEqual([]);
+    t.clock.now = start;
+  });
+});
+
+describe('the app waitlist', () => {
+  const DAY = '2026-11-26', G1 = 'first@gmail.com', G2 = 'second@gmail.com', G3 = 'third@gmail.com';
+  const fill = async (time: number) => {
+    for (const tee of ['1', '10']) await t.call(OWNER, 'POST', `/courses/${id}/bookings`, { layoutId, startTee: tee, day: DAY, time, players: 4, contactName: `Full ${time} ${tee}`, channel: 'staff' });
+  };
+  const wl = (who: string) => t.call(who, 'GET', '/golf/waitlist').then((r) => r.body);
+  const inbox = (who: string) => t.call(who, 'GET', '/golf/messages').then((r) => r.body);
+  let start = 0;
+  beforeAll(async () => {
+    start = t.clock.now;
+    t.clock.now = at('2026-11-21', '09:00');
+    for (const [who, name] of [[G1, 'Ana Uno'], [G2, 'Ben Dos'], [G3, 'Cara Tres']]) await t.call(who, 'PUT', '/golf/me', { name, mobile: '0917 555 0000', residency: 'local', acceptPrivacy: true });
+    await fill(400); await fill(410);
+  });
+  afterAll(() => { t.clock.now = start; });
+
+  it('sends golfers to an open time instead of the waitlist', async () => {
+    const r = await t.call(G1, 'POST', '/golf/courses/valleygolfclub/waitlist', { day: DAY, layoutId, from: 380, to: 410, players: 2 });
+    expect(r.body.error).toMatch(/is open for 2\. Book it instead/);
+  });
+  it('lets golfers wait for a full range, in the order they joined', async () => {
+    for (const who of [G1, G2, G3]) expect((await t.call(who, 'POST', '/golf/courses/valleygolfclub/waitlist', { day: DAY, layoutId, from: 400, to: 410, players: 3 })).status).toBe(200);
+    expect((await t.call(G1, 'POST', '/golf/courses/valleygolfclub/waitlist', { day: DAY, layoutId, from: 400, to: 410, players: 3 })).body.error).toMatch(/already on the waitlist/);
+    expect(await wl(G1)).toEqual([expect.objectContaining({ day: DAY, from: 400, to: 410, players: 3, status: 'waiting', offer: null })]);
+    const staff = await t.call(OWNER, 'GET', `/courses/${id}/waiting?day=${DAY}`);
+    expect(staff.body.map((w: { kind: string; contactName: string }) => `${w.kind} ${w.contactName}`)).toEqual(['app Ana Uno', 'app Ben Dos', 'app Cara Tres']);
+  });
+  it('offers an opened time to the first in line, held in their name for the claim time', async () => {
+    const sheet = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
+    const gone = sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 400 && s.startTee === '1').bookings[0];
+    await t.call(OWNER, 'POST', `/courses/${id}/bookings/${gone.id}/cancel`, { reason: 'Called to cancel' });
+    await everyMinute(t.db, t.clock.now);
+    const mine = await wl(G1);
+    expect(mine[0]).toMatchObject({ status: 'offered', offer: { time: 400, startTee: '1', free: 3, until: t.clock.now + 15 * 60_000 } });
+    expect((await wl(G2))[0].status).toBe('waiting');
+    expect((await inbox(G1)).messages[0]).toMatchObject({ kind: 'offer', title: '6:40 AM opened up for you' });
+    expect((await t.call(G1, 'GET', '/golf/bookings')).body.some((x: { day: string }) => x.day === DAY)).toBe(false);
+    // Nobody else can take it while it's offered.
+    const times = await t.call(G2, 'GET', `/golf/courses/valleygolfclub/times?day=${DAY}`);
+    expect(times.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 400 && s.startTee === '1')?.free).toBe(1);
+    const grab = await t.call(G2, 'POST', '/golf/courses/valleygolfclub/bookings', { layoutId, startTee: '1', day: DAY, time: 400, players: 3, offerId: mine[0].id });
+    expect(grab.body.error).toMatch(/offer has ended/);
+    const claim = await t.call(G1, 'POST', '/golf/courses/valleygolfclub/bookings', { layoutId, startTee: '1', day: DAY, time: 400, players: 3, offerId: mine[0].id });
+    expect(claim.body).toMatchObject({ status: 'confirmed', channel: 'app', players: 3 });
+    expect(await wl(G1)).toEqual([]);
+  });
+  it('moves an unclaimed offer to the next golfer in line', async () => {
+    const sheet = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
+    const gone = sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 400 && s.startTee === '10').bookings[0];
+    await t.call(OWNER, 'POST', `/courses/${id}/bookings/${gone.id}/cancel`, { reason: 'Called to cancel' });
+    await everyMinute(t.db, t.clock.now);
+    expect((await wl(G2))[0].status).toBe('offered');
+    t.clock.now += 15 * 60_000 + 1;
+    await everyMinute(t.db, t.clock.now);
+    expect((await wl(G2))[0].status).toBe('missed');
+    expect((await inbox(G2)).messages[0].kind).toBe('offer_missed');
+    expect((await wl(G3))[0]).toMatchObject({ status: 'offered', offer: { time: 400, startTee: '10' } });
+    expect((await t.call(G3, 'POST', `/golf/waitlist/${(await wl(G3))[0].id}/leave`)).body).toEqual({ ok: true });
+    const sheet2 = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
+    expect(sheet2.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 400 && s.startTee === '10')).toMatchObject({ free: 4 });
+  });
+  it('tells everyone waiting at once when a time opens under an hour before it', async () => {
+    await fill(420);
+    await t.call(G3, 'POST', '/golf/courses/valleygolfclub/waitlist', { day: DAY, layoutId, from: 420, to: 420, players: 2 });
+    t.clock.now = at(DAY, '06:20');
+    const sheet = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${DAY}`);
+    const gone = sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 420 && s.startTee === '1').bookings[0];
+    await t.call(OWNER, 'POST', `/courses/${id}/bookings/${gone.id}/cancel`, { reason: 'Called to cancel' });
+    await everyMinute(t.db, t.clock.now);
+    expect((await wl(G3))[0].status).toBe('waiting');
+    expect((await inbox(G3)).messages[0]).toMatchObject({ kind: 'open_now', title: '7:00 AM is open now' });
+    // Booked late: arrive and pay before teeing off.
+    const b = await t.call(G3, 'POST', '/golf/courses/valleygolfclub/bookings', { layoutId, startTee: '1', day: DAY, time: 420, players: 2 });
+    expect(b.body).toMatchObject({ status: 'confirmed' });
+    expect(await wl(G3)).toEqual([]);
+  });
+  it('reminds app golfers to pay before their deadline, then tells them when it passes', async () => {
+    t.clock.now = at('2026-11-21', '09:00');
+    const c = await t.call(OWNER, 'GET', `/courses/${id}`);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payBeforeMinutes: 30 });
+    const b = await t.call(G2, 'POST', '/golf/courses/valleygolfclub/bookings', { layoutId, startTee: '1', day: '2026-11-27', time: 450, players: 2 });
+    expect(b.body.payDueBy).toBe(at('2026-11-27', '07:00'));
+    expect((await t.call(G2, 'GET', '/golf/bookings')).body.find((x: { id: string }) => x.id === b.body.id)).toMatchObject({ payBy: '7:00 AM', lapsed: false });
+    t.clock.now = at('2026-11-27', '06:00');
+    await everyMinute(t.db, t.clock.now);
+    expect((await inbox(G2)).messages[0]).toMatchObject({ kind: 'pay_reminder', title: 'Arrive and pay by 7:00 AM' });
+    t.clock.now = at('2026-11-27', '07:01');
+    await everyMinute(t.db, t.clock.now);
+    expect((await inbox(G2)).messages[0].kind).toBe('lapsed');
+    expect((await t.call(G2, 'GET', '/golf/bookings')).body.find((x: { id: string }) => x.id === b.body.id).lapsed).toBe(true);
+    const inb = await inbox(G2);
+    expect(inb.unread).toBeGreaterThan(0);
+    await t.call(G2, 'POST', '/golf/messages/read');
+    expect((await inbox(G2)).unread).toBe(0);
+    await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, payBeforeMinutes: null });
   });
 });

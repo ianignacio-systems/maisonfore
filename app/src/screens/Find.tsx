@@ -7,7 +7,7 @@ const today = () => localParts(Date.now(), 'Asia/Manila').day;
 const greet = () => { const h = Number(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Manila' })); return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
 
 /** Find a course: pick a day, search by course or place, see prices and the next open tee times (no counts: golfers just need to know when they can play). */
-export function Find({ me }: { me: Me }) {
+export function Find({ me, unread, openInbox }: { me: Me; unread: number; openInbox: () => void }) {
   const [day, setDay] = useState(() => { try { return sessionStorage.getItem('pl.day') || today(); } catch { return today(); } });
   const [q, setQ] = useState('');
   const [list, setList] = useState<CourseCard[] | null>(null);
@@ -26,6 +26,10 @@ export function Find({ me }: { me: Me }) {
   return (
     <div className="pl-page pl-find">
       <header className="pl-head">
+        <button className="pl-bell" aria-label={unread ? `Messages, ${unread} new` : 'Messages'} onClick={openInbox}>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>
+          {unread ? <span>{unread > 9 ? '9+' : unread}</span> : null}
+        </button>
         <p className="pl-kicker">{greet()}, {first}</p>
         <h1>Where are you<br />teeing off?</h1>
       </header>

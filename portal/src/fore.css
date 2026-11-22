@@ -624,3 +624,21 @@ button, input, select, textarea { font-family: inherit; }
 .fore-price-sep .sep-head dt { font-size: 12px; font-weight: 700; color: var(--sand-ink); padding-top: 4px; }
 .fore-price-sep dd { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ------------------------------------------------------------ paying by a deadline, and who's waiting */
+.fore-golfer.due-soon { box-shadow: inset 0 0 0 1.5px var(--flag); }
+.fore-golfer.due-soon .st { color: var(--sand-ink, #7a5a22); }
+.fore-golfer.b-held .st { color: var(--sand-ink, #7a5a22); }
+.fore-note.pay-now { background: var(--flag-soft); border-left: 3px solid var(--flag); }
+.fore-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; margin-left: 8px; padding: 0 6px; border-radius: 10px; background: var(--flag); color: #fff; font-size: 12px; font-weight: 700; }
+.fore-wait { display: flex; flex-direction: column; gap: 8px; }
+.fore-wait + .fore-wait, .fore-wait-row + .fore-wait-row { border-top: 1px solid var(--line); }
+.fore-wait-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.fore-wait-row .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fore-wait-row small { color: var(--muted); font-size: 13px; }
+.fore-wait-row .fore-wait-offer { color: var(--sand-ink, #7a5a22); font-weight: 600; }
+.fore-wait-n { flex: none; width: 26px; height: 26px; border-radius: 13px; background: var(--accent-soft); color: var(--fairway); font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; }
+.fore-wait .fore-times { padding: 0 0 10px 38px; }
+.fore-wait-add { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 4px; border-top: 1px dashed var(--line); margin-top: 4px; }
+.fore-wait-line { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.fore-wait-line > span { align-self: center; }

@@ -23,3 +23,9 @@ services:
         value: https://maisonfore.com,https://www.maisonfore.com
       - key: PLATFORM_ADMIN_EMAILS
         sync: false
+      - key: VAPID_PUBLIC_KEY               # phone alerts for golfers (SETUP.md A5)
+        sync: false
+      - key: VAPID_PRIVATE_KEY              # secret: only ever in Render's Environment
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false

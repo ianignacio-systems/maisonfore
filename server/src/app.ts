@@ -2,7 +2,9 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { AuthError, ensureAccount, Forbidden, NotFound, syncAdminEmails, UserError, type Caller, type Db, type VerifyToken } from '@maison/core';
 import { overview } from './overview';
 import { coursePage, courseTimes, findCourses, golferBook, golferCancel, golferMove, golferProfile, myBookings, saveProfile } from './golf';
+import { dropPushSub, myMessages, pushKey, readMessages, savePushSub } from './notify';
 import { servePortal } from './portal';
+import { addStandby, dayWaiting, joinWaitlist, leaveWaitlist, myWaitlist, removeWaiting } from './waitlist';
 import { changeRole, claimInvites, inviteStaff, listStaff, removeStaff } from './staff';
 import { addBlock, changeStatus, createBooking, createSpecial, daySummary, editBooking, getBooking, moveBooking, recordPayment, removeBlock, staffSheet } from './bookings';
 import {
@@ -25,7 +27,7 @@ export interface AppOptions {
   appDir?: string;
 }
 
-type P = { Params: { id: string; bid: string; slug: string }; Body: Record<string, unknown>; Querystring: Record<string, string> };
+type P = { Params: { id: string; bid: string; slug: string; wid: string }; Body: Record<string, unknown>; Querystring: Record<string, string> };
 
 /** The MaisonFore API (/api/v1). Every course call checks that the caller belongs to the course and that their role allows it. */
 export function buildApp(o: AppOptions): FastifyInstance {
@@ -104,6 +106,15 @@ export function buildApp(o: AppOptions): FastifyInstance {
   app.get('/api/v1/golf/bookings', async (req) => myBookings(db, await signedIn(req), now()));
   app.post<P>('/api/v1/golf/bookings/:bid/cancel', async (req) => golferCancel(db, await signedIn(req), req.params.bid, now()));
   app.post<P>('/api/v1/golf/bookings/:bid/move', async (req) => golferMove(db, await signedIn(req), req.params.bid, req.body ?? {}, now()));
+  // The app waitlist, messages and phone alerts.
+  app.post<P>('/api/v1/golf/courses/:slug/waitlist', async (req) => joinWaitlist(db, await signedIn(req), req.params.slug, req.body ?? {}, now()));
+  app.get('/api/v1/golf/waitlist', async (req) => myWaitlist(db, await signedIn(req), now()));
+  app.post<P>('/api/v1/golf/waitlist/:wid/leave', async (req) => leaveWaitlist(db, await signedIn(req), req.params.wid, now()));
+  app.get('/api/v1/golf/messages', async (req) => myMessages(db, await signedIn(req)));
+  app.post('/api/v1/golf/messages/read', async (req) => readMessages(db, await signedIn(req), now()));
+  app.get('/api/v1/golf/push-key', async (req) => { await signedIn(req); return pushKey(); });
+  app.post<P>('/api/v1/golf/push', async (req) => savePushSub(db, await signedIn(req), req.body ?? {}, now()));
+  app.post<P>('/api/v1/golf/push/off', async (req) => dropPushSub(db, await signedIn(req), req.body ?? {}));
 
   // ---- staff (owners)
   app.get<P>('/api/v1/courses/:id/staff', async (req) => listStaff(db, await signedIn(req), req.params.id));
@@ -116,6 +127,10 @@ export function buildApp(o: AppOptions): FastifyInstance {
   app.get<P>('/api/v1/courses/:id/sheet', async (req) => staffSheet(db, await signedIn(req), req.params.id, req.query, now()));
   app.post<P>('/api/v1/courses/:id/bookings', async (req) => createBooking(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
   app.post<P>('/api/v1/courses/:id/specials', async (req) => createSpecial(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
+  // Who's waiting for a time: the counter's standby list and the app waitlist.
+  app.get<P>('/api/v1/courses/:id/waiting', async (req) => { await roleAt(db, await signedIn(req), req.params.id, CAN.view); return dayWaiting(db, req.params.id, String(req.query.day ?? '')); });
+  app.post<P>('/api/v1/courses/:id/standby', async (req) => addStandby(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
+  app.delete<P>('/api/v1/courses/:id/waiting/:wid', async (req) => removeWaiting(db, await signedIn(req), req.params.id, req.params.wid, now()));
   app.post<P>('/api/v1/courses/:id/holds', async (req) => createBooking(db, await signedIn(req), req.params.id, { ...req.body, hold: true }, now()));
   app.get<P>('/api/v1/courses/:id/bookings/:bid', async (req) => getBooking(db, await signedIn(req), req.params.id, req.params.bid));
   app.patch<P>('/api/v1/courses/:id/bookings/:bid', async (req) => editBooking(db, await signedIn(req), req.params.id, req.params.bid, req.body ?? {}, now()));

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Btn, Field, Seg, Select, Sheet, Stepper } from '@maison/core/ui/kit';
-import { addDays, counterSplit, dueWithBooking, formatDay, formatTime, holesOffered, isPencil, minPlayers, paidForCheckIn, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
+import { addDays, counterSplit, dueWithBooking, localParts, mustPayNow, payDeadline, formatDay, formatTime, holesOffered, isPencil, minPlayers, paidForCheckIn, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
 import { api, type SheetData, type StaffBooking, type StaffSlot } from '../api';
 
 const toMin = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
@@ -11,8 +11,10 @@ const CHANNEL: Record<string, string> = { phone: 'Phone', viber: 'Viber', walkin
  * the price. With `special` (owners and managers), a VIP, member or favour accepted outside the sheet: any
  * time or none, never refused for a full or held time, charged like any booking by each player's type.
  */
-export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: {
+export function NewBooking({ courseId, cell, special, setup, prefill, onClose, onDone }: {
   courseId: string; cell?: StaffSlot; special?: { day: string }; setup: CourseSetup; onClose: () => void; onDone: (made?: StaffBooking) => void;
+  /** Seating a group from the counter's standby list: their details, booked as a walk-in. */
+  prefill?: { contactName: string; mobile: string; notes: string; players: number; standbyId: string };
 }) {
   const types = setup.playerTypes.filter((t) => t.active && !t.member);
   const first = (types.find((t) => t.public) ?? types[0])?.id ?? '';
@@ -23,10 +25,10 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
   const time = cell ? cell.time : timeText ? toMin(timeText) : null;
   const room = cell ? cell.free : 5;
   const offered = holesOffered(setup, layoutId);
-  const [f, setF] = useState({ contactName: '', mobile: '', channel: 'phone', notes: '' });
+  const [f, setF] = useState({ contactName: prefill?.contactName ?? '', mobile: prefill?.mobile ?? '', channel: prefill ? 'walkin' : 'phone', notes: prefill?.notes ?? '' });
   const [names, setNames] = useState<string[]>([]);
   const namesRequired = setup.rules.playerNames === 'required';
-  const [counts, setCounts] = useState<Record<string, number>>({ [first]: Math.min(room, 4) });
+  const [counts, setCounts] = useState<Record<string, number>>({ [first]: Math.min(room, prefill?.players ?? 4) });
   const [holes, setHoles] = useState<9 | 18>(offered[0]);
   const [carts, setCarts] = useState(0);
   const [caddies, setCaddies] = useState(0);
@@ -55,7 +57,7 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
     try {
       const playerNames = players.map((_, i) => (names[i] ?? '').trim() || (i === 0 ? f.contactName.trim() : ''));
       if (namesRequired && playerNames.some((x) => !x)) throw new Error('Enter the name of every player. The club asks for all names.');
-      const body = { ...f, playerNames, players: n, playerTypes: players, holes: q.holes, carts: q.carts, caddies: q.caddies, gallery: q.gallery, extras, layoutId, day };
+      const body = { ...f, playerNames, players: n, playerTypes: players, holes: q.holes, carts: q.carts, caddies: q.caddies, gallery: q.gallery, extras, layoutId, day, standbyId: prefill?.standbyId };
       const made = cell ? await api<StaffBooking>(`/courses/${courseId}/bookings`, { method: 'POST', body: { ...body, startTee: cell.startTee, time: cell.time } })
         : await api<StaffBooking>(`/courses/${courseId}/specials`, { method: 'POST', body: { ...body, time } });
       onDone(made);
@@ -75,6 +77,7 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
         </>
       ) : null}
       <Seg value={f.channel} onChange={(v) => setF({ ...f, channel: v })} options={[{ value: 'phone', label: 'Phone' }, { value: 'viber', label: 'Viber' }, { value: 'walkin', label: 'Walk-in' }]} />
+      {cell ? <PayNote setup={setup} day={day} time={cell.time} channel={f.channel} /> : null}
       <div className="grid fore-2">
         <Field label="Name" value={f.contactName} onChange={(v) => setF({ ...f, contactName: v })} autoFocus />
         <Field label="Mobile" type="tel" value={f.mobile} onChange={(v) => setF({ ...f, mobile: v })} placeholder="0917 123 4567" />
@@ -141,6 +144,17 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
   );
 }
 
+/** When a new staff booking must be paid: on the spot (same-day walk-ins, or past the deadline), or by the club's deadline. */
+function PayNote({ setup, day, time, channel }: { setup: CourseSetup; day: string; time: number; channel: string }) {
+  const now = Date.now();
+  const at = (ms: number) => new Date(ms).toLocaleString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: setup.timeZone });
+  if (mustPayNow(setup, { day, time, channel }, now)) {
+    return <p className="fore-note pay-now">{channel === 'walkin' && day === localParts(now, setup.timeZone).day ? 'Same-day walk-in: they pay now.' : 'Too close to the tee time for a deadline: they pay now.'} The time is held {setup.rules.holdMinutes} minutes while they pay, then released.</p>;
+  }
+  const due = payDeadline(setup, { day, time, channel }, now);
+  return due ? <p className="muted small">If not paid now, it keeps its tee time until {at(due)}. After that it becomes a pencil booking.</p> : null;
+}
+
 /** The price, line by line, with what's paid at the course marked. */
 export function Price({ lines, problems = [], payAtCourse = false }: { lines: QuoteLine[]; total?: number; problems?: string[]; payAtCourse?: boolean }) {
   // Bookings priced before payment targets were named say 'app' and 'course'.
@@ -182,6 +196,7 @@ export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, 
   // Just booked by phone, Viber or at the counter: go straight to taking the payment.
   const [mode, setMode] = useState<'view' | 'cancel' | 'move' | 'pay' | 'edit'>(justMade && !readOnly && b.payStatus === 'unpaid' ? 'pay' : 'view');
   const pencil = isPencil(b, Date.now());
+  const clockOf = (ms: number) => new Date(ms).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: setup.timeZone });
   const [roster, setRoster] = useState<{ n: number; name: string; player_type_id: string }[]>([]);
   useEffect(() => {
     let live = true;
@@ -206,9 +221,12 @@ export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, 
         {b.carts || b.caddies || b.gallery ? <div><dt>With</dt><dd>{[b.carts ? `${b.carts} ${b.carts === 1 ? 'cart' : 'carts'}` : '', b.caddies ? `${b.caddies} ${b.caddies === 1 ? 'caddie' : 'caddies'}` : '', b.gallery ? `${b.gallery} gallery` : ''].filter(Boolean).join(', ')}</dd></div> : null}
         <div><dt>Booked by</dt><dd>{CHANNEL[b.channel] ?? b.channel}</dd></div>
         <div><dt>Reference</dt><dd className="fore-ref">{b.ref}</dd></div>
-        <div className={pencil ? 'wide' : ''}><dt>Payment</dt><dd>{b.payStatus === 'paid_course' ? `${peso(b.paidAmount)} paid at the counter${b.paidMethod ? `, ${METHOD[b.paidMethod] ?? b.paidMethod}` : ''}` : b.payStatus === 'paid_online' ? 'Paid in the app'
+        <div className={pencil || b.status === 'held' ? 'wide' : ''}><dt>Payment</dt><dd>{b.payStatus === 'paid_course' ? `${peso(b.paidAmount)} paid at the counter${b.paidMethod ? `, ${METHOD[b.paidMethod] ?? b.paidMethod}` : ''}` : b.payStatus === 'paid_online' ? 'Paid in the app'
           : pencil ? <span className="fore-pencil-note">Not paid in time: now a pencil booking. Others can book this time. Record the payment to put it back, if there’s still room.</span>
-            : b.payDueBy ? `Not paid yet. Keeps its tee time until ${new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Not paid yet'}</dd></div>
+            : b.status === 'held' && b.holdExpiresAt ? (b.createdBy === 'waitlist'
+              ? `Waitlist offer: held for this golfer until ${clockOf(b.holdExpiresAt)}. They book it in the app; if they don’t, it goes to the next in line.`
+              : `Pay now: held until ${clockOf(b.holdExpiresAt)}. Record the payment to confirm it; otherwise the time is released.`)
+              : b.payDueBy ? `Not paid yet. Pay by ${new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}, or it becomes a pencil booking.` : 'Not paid yet'}</dd></div>
         {b.mobile ? <div><dt>Mobile</dt><dd><a href={`tel:${b.mobile}`}>{b.mobile}</a></dd></div> : null}
         {b.email ? <div><dt>Email</dt><dd><a href={`mailto:${b.email}`}>{b.email}</a></dd></div> : null}
         {b.notes ? <div className="wide"><dt>Note</dt><dd>{b.notes}</dd></div> : null}
@@ -326,8 +344,9 @@ function RecordPayment({ courseId, b, justMade, onBack, onDone }: { courseId: st
         {method !== 'cash' ? <Field label="Reference number" value={ref} onChange={setRef} placeholder="From the receipt or app" /> : null}
       </div>
       {msg ? <p className="fore-error">{msg}</p> : null}
-      {justMade && b.payDueBy ? <p className="muted small">Not paying now? The booking keeps its tee time until {new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. After that it becomes a pencil booking and others can book the time.</p> : null}
-      <div className="row"><Btn kind="primary" disabled={busy} onClick={() => void go()}>Record {method === 'cash' ? 'cash' : METHOD[method]} payment</Btn><Btn kind="ghost" onClick={onBack}>{justMade ? 'Pay later' : 'Back'}</Btn></div>
+      {justMade && b.status === 'held' && b.holdExpiresAt ? <p className="fore-note pay-now">They pay now: the time is held until {new Date(b.holdExpiresAt).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}, then released if no payment is recorded.</p>
+        : justMade && b.payDueBy ? <p className="muted small">Not paying now? The booking keeps its tee time until {new Date(b.payDueBy).toLocaleString('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. After that it becomes a pencil booking and others can book the time.</p> : null}
+      <div className="row"><Btn kind="primary" disabled={busy} onClick={() => void go()}>Record {method === 'cash' ? 'cash' : METHOD[method]} payment</Btn><Btn kind="ghost" onClick={onBack}>{justMade ? (b.status === 'held' ? 'Not now' : 'Pay later') : 'Back'}</Btn></div>
     </div>
   );
 }

@@ -18,7 +18,7 @@ const PANES: { id: Pane; label: string; sub: string }[] = [
   { id: 'teetimes', label: 'Courses and tee time', sub: 'Each course (9 or 18 holes), its tee time settings and interval' },
   { id: 'players', label: 'Players and green fees', sub: 'Local, foreign, senior… 9 and 18 holes' },
   { id: 'fees', label: 'Carts, caddies and fees', sub: 'Golf cart, caddie, insurance, rentals and more' },
-  { id: 'rules', label: 'Booking rules', sub: 'How far ahead, cancelling, holds' },
+  { id: 'rules', label: 'Booking rules', sub: 'How far ahead, cancelling, paying, the waitlist' },
   { id: 'holidays', label: 'Holidays', sub: 'Days that use holiday rates' },
   { id: 'course', label: 'Course page', sub: 'What golfers see in the app' },
 ];
@@ -426,7 +426,10 @@ function FeeCard({ f, title, sub, policy, onPolicy, policies, upd, types, nine, 
 
 // ---------------------------------------------------------------- booking rules
 
-const GRACE = [{ value: '', label: 'Until paid' }, ...[1, 2, 3, 4, 6, 12, 24, 48, 72].map((h) => ({ value: String(h), label: h < 24 ? `${h} ${h === 1 ? 'hour' : 'hours'}` : `${h / 24} ${h === 24 ? 'day' : 'days'}` }))];
+const before = (m: number) => (m < 60 ? `${m} minutes before` : m < 1440 ? `${m / 60} ${m === 60 ? 'hour' : 'hours'} before` : `${m / 1440} ${m === 1440 ? 'day' : 'days'} before`);
+const PAY_BEFORE = [{ value: '', label: 'No deadline' }, ...[15, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440, 2880].map((m) => ({ value: String(m), label: before(m) }))];
+const PAY_WITHIN = [{ value: '', label: 'No limit' }, ...[1, 2, 3, 5, 7, 14].map((d) => ({ value: String(d), label: `Within ${d} ${d === 1 ? 'day' : 'days'} of booking` }))];
+const CLAIM = [5, 10, 15, 20, 30].map((m) => ({ value: String(m), label: `${m} minutes` }));
 const FEWEST = ['1', '2', '3', '4'].map((n) => ({ value: n, label: n === '1' ? '1 (solo)' : `${n} players` }));
 
 function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<void> }) {
@@ -444,14 +447,21 @@ function RulesPane({ data, reload }: { data: CourseData; reload: () => Promise<v
         {item('Cancel or move', 'Golfers can cancel or move up to this many hours before their tee time.', <Field label="Hours before" inputMode="numeric" value={String(f.cancelCutoffHours)} onChange={num('cancelCutoffHours')} sm />)}
         {item('Players per booking', 'Most players in one app booking.', <Field label="Players" inputMode="numeric" value={String(f.maxPlayersPerBooking)} onChange={num('maxPlayersPerBooking')} sm />)}
         {item('Open bookings', 'Most upcoming bookings one golfer can have.', <Field label="Bookings" inputMode="numeric" value={String(f.maxOpenBookingsPerGolfer)} onChange={num('maxOpenBookingsPerGolfer')} sm />)}
-        {item('Time to pay', 'Minutes a tee time is held while the golfer pays.', <Field label="Minutes" inputMode="numeric" value={String(f.holdMinutes)} onChange={num('holdMinutes')} sm />)}
         {item('No-shows', 'No-shows in 90 days before a golfer can’t book in the app. 0 = never.', <Field label="No-shows" inputMode="numeric" value={String(f.noShowLimit)} onChange={num('noShowLimit')} sm />)}
         {item('Fewest players, Monday to Friday', 'The smallest group golfers can book in the app. 1 = a solo golfer can book.', <Select aria-label="Fewest players on weekdays" value={String(f.minPlayersWeekday ?? 1)} onChange={(v) => setF({ ...f, minPlayersWeekday: Number(v) })} options={FEWEST} />)}
         {item('Fewest players, weekends and holidays', 'Many courses ask for bigger groups on busy days.', <Select aria-label="Fewest players on weekends" value={String(f.minPlayersWeekend ?? 1)} onChange={(v) => setF({ ...f, minPlayersWeekend: Number(v) })} options={FEWEST} />)}
-        {item('Time to pay, phone, Viber and walk-in bookings', 'How long an unpaid booking keeps its tee time after it’s made. After that it becomes a pencil booking: it stays on the sheet, but others can book the time.',
-          <Select aria-label="Time to pay" value={f.paymentGraceHours === null || f.paymentGraceHours === undefined ? '' : String(f.paymentGraceHours)} onChange={(v) => setF({ ...f, paymentGraceHours: v === '' ? null : Number(v) })} options={GRACE} />)}
         {item('Player names', 'Required: staff and golfers give every player’s name when booking. Optional: only the name for the booking.', <Seg value={f.playerNames === 'required' ? 'required' : 'optional'} onChange={(v) => setF({ ...f, playerNames: v === 'required' ? 'required' : 'optional' })} options={[{ value: 'optional', label: 'Optional' }, { value: 'required', label: 'Required' }]} />)}
         {item('Groups share a tee time', 'On: different groups can book the same tee time until it’s full. Off: one group per tee time.', <Seg value={f.shareTeeTimes === false ? 'no' : 'yes'} onChange={(v) => setF({ ...f, shareTeeTimes: v === 'yes' })} options={[{ value: 'yes', label: 'Share' }, { value: 'no', label: 'One group' }]} />)}
+      </div>
+      <h3 className="fore-set-sub">Paying, and the waitlist</h3>
+      <div className="fore-panel flush">
+        {item('Pay by', 'For phone, Viber and walk-in bookings for a later day, and app golfers paying at the counter. Not paid in time: it becomes a pencil booking and the tee time opens to others and to the waitlist.',
+          <Select aria-label="Pay by" value={f.payBeforeMinutes === null || f.payBeforeMinutes === undefined ? '' : String(f.payBeforeMinutes)} onChange={(v) => setF({ ...f, payBeforeMinutes: v === '' ? null : Number(v) })} options={PAY_BEFORE} />)}
+        {item('…and within', 'Optional: also within some days of booking, whichever comes first. Stops a far-off tee time being held unpaid until the last minute.',
+          <Select aria-label="Pay within" value={f.payWithinDays === null || f.payWithinDays === undefined ? '' : String(f.payWithinDays)} onChange={(v) => setF({ ...f, payWithinDays: v === '' ? null : Number(v) })} options={PAY_WITHIN} />)}
+        {item('Pay-now window', 'Same-day walk-ins pay at the counter right away; so do bookings made after their pay deadline. Their tee time is held this many minutes while they pay, then released. Staff holds last this long too.', <Field label="Minutes" inputMode="numeric" value={String(f.holdMinutes)} onChange={num('holdMinutes')} sm />)}
+        {item('Waitlist: time to claim', 'When a tee time opens, the first golfer on the app waitlist has this long to book it before it goes to the next. Under an hour before the tee time, everyone waiting is told at once.',
+          <Select aria-label="Time to claim" value={String(f.waitlistClaimMinutes ?? 15)} onChange={(v) => setF({ ...f, waitlistClaimMinutes: Number(v) })} options={CLAIM} />)}
       </div>
       <SaveBar label="Save booking rules" busy={busy} msg={msg} onSave={() => void run([[`/courses/${data.course.id}/rules`, { ...f, releaseTime: toMin(f.releaseTimeText) }]])} />
     </section>

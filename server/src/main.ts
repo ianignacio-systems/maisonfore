@@ -1,7 +1,8 @@
 process.env.TZ ||= 'Asia/Manila';
 import { devVerifier, pgDb, supabaseVerifier, type Db } from '@maison/core';
 import { buildApp } from './app';
-import { expireHolds } from './bookings';
+import { configurePush } from './notify';
+import { everyMinute } from './waitlist';
 import { loadConfig } from './config';
 import { prepareDatabase } from './schema';
 
@@ -23,7 +24,10 @@ const app = buildApp({ db, verify, corsOrigins: cfg.corsOrigins, logger: cfg.pro
 if (cfg.portalDir) console.log(`Serving the portal from ${cfg.portalDir}.`);
 await app.listen({ port: cfg.port, host: '0.0.0.0' });
 console.log(`MaisonFore server on port ${cfg.port}. Maison admins by email: ${cfg.adminEmails.length}.`);
-const tidy = setInterval(() => { expireHolds(db).catch((e) => console.error('Expiring holds failed', e)); }, 60_000);
+configurePush(process.env);
+if (!process.env.VAPID_PUBLIC_KEY) console.log('No VAPID keys: phone alerts are off (golfers still see messages in the app).');
+// Every minute: release holds that ran out, offer opened times to the waitlist, remind golfers to pay, send alerts.
+const tidy = setInterval(() => { everyMinute(db).catch((e) => console.error('The minute round failed', e)); }, 60_000);
 const stop = async () => { clearInterval(tidy); await app.close(); await db.close(); process.exit(0); };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);

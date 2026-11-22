@@ -1,5 +1,5 @@
 import { counterSplit } from './quote';
-import { zonedEpoch } from './time';
+import { localParts, zonedEpoch } from './time';
 import type { Booking, BookingStatus, CourseSetup } from './types';
 
 /**
@@ -63,6 +63,49 @@ export const STATUS_WORDS: Record<BookingStatus, string> = {
 /** The tee time as a moment (epoch ms). */
 export function teeMoment(setup: CourseSetup, b: Pick<Booking, 'day' | 'time'>): number {
   return zonedEpoch(b.day, b.time, setup.timeZone);
+}
+
+/** Booking channels whose unpaid bookings have a pay deadline. Staff bookings and special bookings have none. */
+const DEADLINE_CHANNELS = ['phone', 'viber', 'walkin', 'app'];
+
+/**
+ * When an unpaid booking must be paid by, from the club's rules: a set time before the tee time and/or
+ * within some days of booking, whichever comes first (never after the tee time). null = no deadline.
+ */
+export function payDeadline(setup: CourseSetup, b: { day: string; time: number; channel: string }, madeAt: number): number | null {
+  if (!DEADLINE_CHANNELS.includes(b.channel) || b.time < 0) return null;
+  const tee = teeMoment(setup, b);
+  const r = setup.rules;
+  const limits = [
+    r.payBeforeMinutes === null || r.payBeforeMinutes === undefined ? null : tee - r.payBeforeMinutes * 60_000,
+    r.payWithinDays === null || r.payWithinDays === undefined ? null : madeAt + r.payWithinDays * 86_400_000,
+  ].filter((x): x is number => x !== null);
+  return limits.length ? Math.min(tee, ...limits) : null;
+}
+
+/**
+ * Staff bookings that must be paid on the spot, within the pay-now window: same-day walk-ins (they're at the
+ * counter), and phone or Viber bookings made after their pay deadline has already passed.
+ */
+export function mustPayNow(setup: CourseSetup, b: { day: string; time: number; channel: string }, now: number): boolean {
+  if (b.channel === 'walkin' && b.day === localParts(now, setup.timeZone).day) return true;
+  if (b.channel !== 'phone' && b.channel !== 'viber' && b.channel !== 'walkin') return false;
+  const due = payDeadline(setup, b, now);
+  return due !== null && due <= now;
+}
+
+/**
+ * The deadline to save on a booking made or moved now. App golfers can't pay on the spot yet, so one made
+ * after its deadline must arrive and pay before teeing off.
+ */
+export function dueByNow(setup: CourseSetup, b: { day: string; time: number; channel: string }, madeAt: number, now: number): number | null {
+  const due = payDeadline(setup, b, madeAt);
+  return due !== null && due <= now ? teeMoment(setup, b) : due;
+}
+
+/** An app booking that was never paid and whose tee time has gone by: it counts as a no-show. */
+export function lapsedUnpaid(setup: CourseSetup, b: Pick<Booking, 'day' | 'time' | 'status' | 'channel'> & { payDueBy?: number | null; payStatus?: string }, now: number): boolean {
+  return b.channel === 'app' && b.payStatus === 'unpaid' && isPencil(b, now) && b.time >= 0 && teeMoment(setup, b) < now;
 }
 
 /** Can the golfer still cancel or move it themselves? (Staff always can, before it is played.) */

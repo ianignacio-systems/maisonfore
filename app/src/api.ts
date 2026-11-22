@@ -57,4 +57,14 @@ export interface MyBooking {
   amount: number; quote: QuoteLine[]; payStatus: string; carts: number; caddies: number; gallery: number;
   course: { slug: string; name: string; phone: string }; layoutName: string; startTee: string;
   roster: { name: string; type: string }[]; upcoming: boolean; canChange: boolean; cutoffHours: number;
+  /** Unpaid: arrive and pay by this time (the course's clock), on payByDay. lapsed = not paid in time, open to others. */
+  payDueBy: number | null; payBy: string | null; payByDay: string | null; lapsed: boolean;
 }
+
+/** Waiting for a time at a course on a day; `offer` is a time held for the golfer to book before `until`. */
+export interface WaitEntry {
+  id: string; day: string; from: number; to: number; players: number; status: 'waiting' | 'offered' | 'missed';
+  course: { name: string; slug: string };
+  offer: { layoutId: string; startTee: string; time: number; free: number; until: number } | null;
+}
+export interface Inbox { unread: number; messages: { id: string; kind: string; title: string; body: string; link: string; at: number; read: boolean }[] }

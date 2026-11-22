@@ -290,7 +290,7 @@ export async function saveRules(db: Db, c: Caller, id: string, input: Record<str
     cancelCutoffHours: int(input.cancelCutoffHours, 'the cancellation cutoff (hours)', 0, 168),
     maxPlayersPerBooking: int(input.maxPlayersPerBooking, 'players per booking', 1, 5),
     maxOpenBookingsPerGolfer: int(input.maxOpenBookingsPerGolfer, 'open bookings per golfer', 1, 10),
-    holdMinutes: int(input.holdMinutes, 'the hold time (minutes)', 3, 30),
+    holdMinutes: int(input.holdMinutes, 'the pay-now window (minutes)', 3, 30),
     twilightFrom: input.twilightFrom === null || input.twilightFrom === '' || input.twilightFrom === undefined ? null : minutes(input.twilightFrom, 'the twilight start time'),
     noShowLimit: int(input.noShowLimit, 'the no-show limit', 0, 10),
     memberDaysAhead: null,
@@ -298,7 +298,9 @@ export async function saveRules(db: Db, c: Caller, id: string, input: Record<str
     minPlayersWeekend: int(input.minPlayersWeekend ?? 1, 'the fewest players on weekends', 1, 5),
     shareTeeTimes: input.shareTeeTimes !== false,
     playerNames: input.playerNames === 'required' ? 'required' : 'optional',
-    paymentGraceHours: input.paymentGraceHours === null || input.paymentGraceHours === undefined || input.paymentGraceHours === '' ? null : int(input.paymentGraceHours, 'the hours to pay', 1, 168),
+    payBeforeMinutes: input.payBeforeMinutes === null || input.payBeforeMinutes === undefined || input.payBeforeMinutes === '' ? null : int(input.payBeforeMinutes, 'how long before the tee time to pay (minutes)', 0, 7 * 24 * 60),
+    payWithinDays: input.payWithinDays === null || input.payWithinDays === undefined || input.payWithinDays === '' ? null : int(input.payWithinDays, 'the days to pay after booking', 1, 60),
+    waitlistClaimMinutes: int(input.waitlistClaimMinutes ?? 15, 'the time to claim a waitlist offer (minutes)', 3, 60),
   };
   await db.tx(async (q) => {
     await q.query('update courses set rules = $2 where business_id = $1', [id, JSON.stringify(r)]);

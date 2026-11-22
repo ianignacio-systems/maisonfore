@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { counterSplit, holesOffered, minPlayers, peso, priceFor, quote, type CourseSetup, type PlayerType } from '@maison/engine';
-import { api, teeFor, teeTimes, type CoursePage, type Me, type MyBooking, type TeeTime, type Times } from '../api';
+import { counterSplit, formatTime, localParts, holesOffered, minPlayers, peso, priceFor, quote, type CourseSetup, type PlayerType } from '@maison/engine';
+import { api, teeFor, teeTimes, type CoursePage, type Me, type MyBooking, type TeeTime, type Times, type WaitEntry } from '../api';
+import { alertState, turnOnAlerts, type AlertState } from '../push';
 import { Button, clock, CourseArt, DayPart, Days, go, Pass, PriceList, Sheet, shortDay, Spots, Stepper } from '../ui';
 
 const PERIODS: ['Morning' | 'Midday' | 'Afternoon', number, number][] = [['Morning', 0, 720], ['Midday', 720, 900], ['Afternoon', 900, 1440]];
@@ -17,11 +18,24 @@ export function Course({ slug, me }: { slug: string; me: Me }) {
   const [day, setDay] = useState(() => new URLSearchParams(location.search).get('day') ?? '');
   const [times, setTimes] = useState<Times | null>(null);
   const [layoutIx, setLayoutIx] = useState(0);
-  const [booking, setBooking] = useState<{ slot: TeeTime; layoutId: string } | null>(null);
+  const [booking, setBooking] = useState<{ slot: TeeTime; layoutId: string; offer?: { id: string; until: number } } | null>(null);
+  const [joining, setJoining] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [n, setN] = useState(0);
 
   useEffect(() => { api<CoursePage>(`/courses/${slug}`).then((p) => { setPage(p); if (!day || day < p.window.today) setDay(p.window.today); }).catch((e) => setProblem((e as Error).message)); }, [slug]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opened from a waitlist offer: go straight to booking the time held for this golfer.
+  useEffect(() => {
+    const offerId = new URLSearchParams(location.search).get('offer');
+    if (!offerId) return;
+    api<WaitEntry[]>('/waitlist').then((list) => {
+      const w = list.find((x) => x.id === offerId && x.offer && x.course.slug === slug);
+      if (!w?.offer) { setProblem('That offer has ended. The time went to the next golfer in line.'); return; }
+      const o = w.offer;
+      setDay(w.day);
+      setBooking({ layoutId: o.layoutId, slot: { time: o.time, free: o.free, tees: [{ time: o.time, startTee: o.startTee, free: o.free, capacity: o.free }] }, offer: { id: w.id, until: o.until } });
+    }).catch((e) => setProblem((e as Error).message));
+  }, [slug]);
   useEffect(() => {
     if (!day) return;
     let live = true;
@@ -63,7 +77,7 @@ export function Course({ slug, me }: { slug: string; me: Me }) {
         {layouts.length > 1 ? <div className="pl-seg">{layouts.map((l, i) => <button key={l.id} className={i === layoutIx ? 'on' : ''} onClick={() => setLayoutIx(i)}>{l.name}</button>)}</div> : null}
         {!times ? <p className="pl-muted pl-pad">Finding open times…</p>
           : times.notYet ? <div className="pl-empty"><b>Not open yet</b><p>{times.notYet}</p></div>
-            : !L || !L.slots.length ? <div className="pl-empty"><b>No open tee time</b><p>Try another day, or call the course.</p></div> : (
+            : !L || !L.slots.length ? <div className="pl-empty"><b>No open tee time</b><p>Join the waitlist and we’ll tell you when a time opens, or try another day.</p><Button onClick={() => setJoining(true)}>Join the waitlist</Button></div> : (
               <>
                 {mine ? <p className="pl-muted small">Prices are per player for {mine.name}, 18 holes. Carts, caddies and fees are shown before you book.</p> : null}
                 {PERIODS.map(([label, from, to]) => {
@@ -87,16 +101,22 @@ export function Course({ slug, me }: { slug: string; me: Me }) {
                     </section>
                   );
                 })}
+                <div className="pl-wait-cta">
+                  <span><b>Times you want are full?</b><small>Join the waitlist. If one opens up, you’ll be first to know.</small></span>
+                  <Button kind="line" onClick={() => setJoining(true)}>Join the waitlist</Button>
+                </div>
               </>
             )}
+        {problem ? <p className="pl-err">{problem}</p> : null}
       </div>
-      {booking ? <Book page={page} me={me} day={day} layoutId={booking.layoutId} slot={booking.slot} onClose={() => { setBooking(null); setN(n + 1); }} /> : null}
+      {booking ? <Book page={page} me={me} day={day} layoutId={booking.layoutId} slot={booking.slot} offer={booking.offer} onClose={() => { setBooking(null); setN(n + 1); }} /> : null}
+      {joining ? <JoinWaitlist page={page} day={day} layoutId={layouts.length > 1 ? L?.id ?? null : null} layoutName={layouts.length > 1 ? L?.name ?? '' : ''} onClose={() => setJoining(false)} /> : null}
     </div>
   );
 }
 
 /** Booking one tee time: who's playing, holes, carts and extras, the price, then paying at the course. */
-function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me: Me; day: string; layoutId: string; slot: TeeTime; onClose: () => void }) {
+function Book({ page, me, day, layoutId, slot, offer, onClose }: { page: CoursePage; me: Me; day: string; layoutId: string; slot: TeeTime; offer?: { id: string; until: number }; onClose: () => void }) {
   const s = page.setup;
   const mine = myType(s, me);
   const least = minPlayers(s, day);
@@ -115,7 +135,7 @@ function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me
   const [notes, setNotes] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ ref: string; id: string } | null>(null);
+  const [done, setDone] = useState<{ ref: string; id: string; payDueBy: number | null } | null>(null);
   const players = types.slice(0, count);
   const tee = teeFor(slot, count);
   const q = useMemo(() => quote(s, { layoutId, day, time: slot.time, holes, players, carts, caddies: 0, gallery, extras }), [s, layoutId, day, slot.time, holes, players.join(), carts, gallery, extras.join()]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -126,9 +146,9 @@ function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me
   const book = async () => {
     setBusy(true); setMsg(null);
     try {
-      const r = await api<{ id: string; ref: string }>(`/courses/${page.course.slug}/bookings`, {
+      const r = await api<{ id: string; ref: string; payDueBy: number | null }>(`/courses/${page.course.slug}/bookings`, {
         method: 'POST',
-        body: { layoutId, startTee: tee.startTee, day, time: slot.time, players: count, playerTypes: players, playerNames: ['', ...names.slice(1, count)], holes: q.holes, carts: q.carts, gallery: q.gallery, extras, notes },
+        body: { layoutId, startTee: tee.startTee, day, time: slot.time, players: count, playerTypes: players, playerNames: ['', ...names.slice(1, count)], holes: q.holes, carts: q.carts, gallery: q.gallery, extras, notes, offerId: offer?.id },
       });
       setDone(r);
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
@@ -140,7 +160,8 @@ function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me
         <div className="pl-done">
           <Pass code={done.ref} course={page.course.name} when={`${shortDay(day)}, ${clock(slot.time)}`}
             detail={`${count} ${count === 1 ? 'player' : 'players'}, ${q.holes} holes${slot.tees.length > 1 || tee.startTee !== '1' ? `, from tee ${tee.startTee}` : ''}`} />
-          <p className="pl-muted">Pay <b>{peso(total)}</b> at the course. We’ve saved this in Bookings.</p>
+          {done.payDueBy ? <p className="pl-payby"><b>Arrive and pay {peso(total)} by {courseClock(s, done.payDueBy)}{localParts(done.payDueBy, s.timeZone).day !== day ? `, ${shortDay(localParts(done.payDueBy, s.timeZone).day)}` : ''}.</b> After that your tee time opens to other golfers.</p>
+            : <p className="pl-muted">Pay <b>{peso(total)}</b> at the course. We’ve saved this in Bookings.</p>}
         </div>
       </Sheet>
     );
@@ -153,6 +174,7 @@ function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me
         <span className="pl-foot-total"><small>Pay at the course</small><b>{peso(total)}</b></span>
         <Button disabled={busy || q.problems.length > 0 || count < least || missingName} onClick={() => void book()}>{busy ? 'Booking…' : `Book ${count} ${count === 1 ? 'player' : 'players'}`}</Button>
       </>}>
+      {offer ? <p className="pl-offer">Held for you until <b>{courseClock(s, offer.until)}</b>. Book it before then, or it goes to the next golfer in line.</p> : null}
       <section className="pl-group">
         <div className="pl-row"><span><b>Players</b><small>{slot.free} {slot.free === 1 ? 'spot' : 'spots'} open{least > 1 ? `, at least ${least} on this day` : ''}</small></span><Stepper label="Players" value={count} min={least} max={most} onChange={setCount} /></div>
         {players.map((t, i) => (
@@ -194,6 +216,7 @@ function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me
         <label className="off"><input type="radio" disabled /><span><b>GCash, Maya or QR Ph</b><small>Coming soon</small></span></label>
       </section>
       <label className="pl-field"><span>Note for the course (optional)</span><input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. need club rental" /></label>
+      {payRule(s) ? <p className="pl-payby small">{payRule(s)}</p> : null}
       <p className="pl-muted small">You can cancel or change the time in the app up to {s.rules.cancelCutoffHours} hours before your tee time.</p>
       {msg ? <p className="pl-err" role="status">{msg}</p> : null}
     </Sheet>
@@ -201,3 +224,65 @@ function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me
 }
 
 export type { MyBooking };
+
+/** A moment as the course's clock shows it, e.g. 6:15 AM. */
+const courseClock = (s: CourseSetup, at: number) => formatTime(localParts(at, s.timeZone).minutes);
+const ahead = (m: number) => (m < 60 ? `${m} minutes` : m < 1440 ? `${m / 60} ${m === 60 ? 'hour' : 'hours'}` : `${m / 1440} ${m === 1440 ? 'day' : 'days'}`);
+/** The club's pay deadline in a sentence, for golfers paying at the counter. */
+function payRule(s: CourseSetup): string | null {
+  const b = s.rules.payBeforeMinutes, d = s.rules.payWithinDays;
+  if (!b && !d) return null;
+  const parts = [b ? `at least ${ahead(b)} before your tee time` : '', d ? `within ${d} ${d === 1 ? 'day' : 'days'} of booking` : ''].filter(Boolean);
+  return `Pay at the counter ${parts.join(', and ')}${b && d ? ', whichever comes first' : ''}. If it isn’t paid by then, your tee time opens to other golfers.`;
+}
+
+const HALF_HOURS = Array.from({ length: 30 }, (_, i) => 4 * 60 + i * 30); // 4:00 AM to 6:30 PM
+
+/** Join the waitlist for a day: how many are playing and the times that would suit. */
+function JoinWaitlist({ page, day, layoutId, layoutName, onClose }: { page: CoursePage; day: string; layoutId: string | null; layoutName: string; onClose: () => void }) {
+  const s = page.setup;
+  const least = minPlayers(s, day);
+  const [players, setPlayers] = useState(Math.max(least, Math.min(4, s.rules.maxPlayersPerBooking)));
+  const [from, setFrom] = useState(6 * 60);
+  const [to, setTo] = useState(9 * 60);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [joined, setJoined] = useState(false);
+  const [alerts, setAlerts] = useState<AlertState | null>(null);
+  useEffect(() => { void alertState().then(setAlerts); }, []);
+  const join = async () => {
+    setBusy(true); setMsg(null);
+    try { await api(`/courses/${page.course.slug}/waitlist`, { method: 'POST', body: { day, from, to, players, layoutId } }); setJoined(true); }
+    catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  };
+  const alertsOn = async () => { setMsg(await turnOnAlerts()); setAlerts(await alertState()); };
+  if (joined) {
+    return (
+      <Sheet key="joined" title="You’re on the waitlist" sub={`${page.course.name}, ${shortDay(day)}`} onClose={onClose} footer={<Button block onClick={() => go('/bookings')}>See my waitlist</Button>}>
+        <p>If a time between <b>{clock(from)}</b> and <b>{clock(to)}</b> opens for {players}, the first golfer in line gets {s.rules.waitlistClaimMinutes} minutes to book it. Within an hour of the tee time, everyone waiting is told at once.</p>
+        {alerts === 'on' ? <p className="pl-ok">Phone alerts are on. We’ll buzz you when a time opens.</p> : (
+          <div className="pl-card">
+            <b>Get a phone alert when a time opens</b>
+            <p className="pl-muted small">Times can open close to tee-off, so an alert is the quickest way to hear.</p>
+            {alerts === 'blocked' ? <p className="pl-muted small">Alerts are blocked for MaisonFore. Allow them in your phone’s settings for this site.</p>
+              : <Button kind="line" onClick={() => void alertsOn()}>Turn on phone alerts</Button>}
+          </div>
+        )}
+        {msg ? <p className="pl-muted small" role="status">{msg}</p> : null}
+      </Sheet>
+    );
+  }
+  const options = HALF_HOURS.map((m) => <option key={m} value={m}>{clock(m)}</option>);
+  return (
+    <Sheet key="join" title="Join the waitlist" sub={`${page.course.name}, ${shortDay(day)}${layoutName ? `, ${layoutName}` : ''}`} onClose={onClose}
+      footer={<Button block disabled={busy || to < from} onClick={() => void join()}>{busy ? 'Joining…' : 'Join the waitlist'}</Button>}>
+      <section className="pl-group">
+        <div className="pl-row"><span><b>Players</b>{least > 1 ? <small>At least {least} on this day</small> : null}</span><Stepper label="Players" value={players} min={least} max={s.rules.maxPlayersPerBooking} onChange={setPlayers} /></div>
+        <div className="pl-row"><span><b>Earliest</b></span><select className="pl-select" aria-label="Earliest" value={from} onChange={(e) => setFrom(Number(e.target.value))}>{options}</select></div>
+        <div className="pl-row"><span><b>Latest</b></span><select className="pl-select" aria-label="Latest" value={to} onChange={(e) => setTo(Number(e.target.value))}>{options}</select></div>
+      </section>
+      <p className="pl-muted small">When a time in this range opens for your group, the first golfer in line is offered it for {s.rules.waitlistClaimMinutes} minutes. If they don’t book it, it goes to the next.</p>
+      {msg ? <p className="pl-err" role="status">{msg}</p> : null}
+    </Sheet>
+  );
+}

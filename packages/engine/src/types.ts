@@ -22,7 +22,7 @@ export interface Layout {
   active: boolean;
 }
 
-/** A layout's tee slots, in force from a day until the next settings for the same layout. */
+/** A layout's tee times, in force from a day until the next settings for the same layout. */
 export interface SheetSettings {
   layoutId: string;
   effectiveFrom: Day;
@@ -39,7 +39,7 @@ export type TimeBand = 'regular' | 'twilight';
 
 /**
  * Who is playing, for pricing: Local, Foreign, Senior, Junior, Member's guest… Each has its own green
- * fees, and can be limited to some days or to tee slots from a set time (e.g. seniors on Wednesdays,
+ * fees, and can be limited to some days or to tee times from a set time (e.g. seniors on Wednesdays,
  * juniors from 11:00 AM).
  */
 export interface PlayerType {
@@ -53,7 +53,7 @@ export interface PlayerType {
   proof: string;
   /** Days it can play, 0 = Sunday … 6 = Saturday. Empty = every day. */
   days: number[];
-  /** Earliest tee slot it can book; null = any time. */
+  /** Earliest tee time it can book; null = any time. */
   earliest: Minutes | null;
   /** Switched off types keep their history but can't be booked. */
   active: boolean;
@@ -74,13 +74,17 @@ export interface BookingRules {
   publicDaysAhead: number;
   /** Clock time a new day opens to the public, e.g. 7:00 AM = 420. */
   releaseTime: Minutes;
-  /** Golfers can cancel or move up to this many hours before the tee slot. Staff can any time. */
+  /** Golfers can cancel or move up to this many hours before the tee time. Staff can any time. */
   cancelCutoffHours: number;
   /** Most players in one booking (usually the flight size). */
   maxPlayersPerBooking: number;
   /** Most bookings a golfer can have open at once. */
   maxOpenBookingsPerGolfer: number;
-  /** Minutes a hold keeps the slot while the golfer pays or staff finish the booking. */
+  /**
+   * The pay-now window: minutes a booking that must be paid on the spot keeps its tee time while the golfer
+   * pays at the counter (same-day walk-ins, and bookings made after their pay deadline). Staff holds last
+   * this long too.
+   */
   holdMinutes: number;
   /** Twilight rates from this clock time; null = no twilight band. */
   twilightFrom: Minutes | null;
@@ -92,15 +96,20 @@ export interface BookingRules {
   minPlayersWeekday: number;
   /** Fewest players in one app booking on weekends and holidays. */
   minPlayersWeekend: number;
-  /** Different groups can share a tee slot until it is full. false = one group per tee slot. */
+  /** Different groups can share a tee time until it is full. false = one group per tee time. */
   shareTeeTimes: boolean;
   /** Whether every player's name must be given when booking, or only the name for the booking. */
   playerNames: 'optional' | 'required';
   /**
-   * Hours an unpaid phone, Viber or walk-in booking keeps its tee slot after it is made. After that it
-   * becomes a pencil booking: it stays on the sheet but no longer takes its spots. null = kept until paid.
+   * Unpaid phone, Viber, walk-in (for a later day) and app bookings must be paid this many minutes before
+   * the tee time. After that they become pencil bookings: still on the sheet, but their spots open to
+   * others and to the waitlist. null = no deadline.
    */
-  paymentGraceHours: number | null;
+  payBeforeMinutes: number | null;
+  /** ...and within this many days of booking, whichever comes first. null = no such limit. */
+  payWithinDays: number | null;
+  /** Minutes the first golfer on the waitlist has to claim a time that opened, before it goes to the next. */
+  waitlistClaimMinutes: number;
 }
 
 export type BlockKind = 'walkin' | 'regulars' | 'event' | 'maintenance' | 'weather' | 'members';
@@ -252,5 +261,7 @@ export const DEFAULT_RULES: BookingRules = {
   minPlayersWeekend: 1,
   shareTeeTimes: true,
   playerNames: 'optional',
-  paymentGraceHours: null,
+  payBeforeMinutes: null,
+  payWithinDays: null,
+  waitlistClaimMinutes: 15,
 };

@@ -3,6 +3,7 @@ import { Btn } from '@maison/core/ui/kit';
 import { addDays, daysBetween, formatTime, isPencil, localParts, STATUS_WORDS, weekday, type CourseSetup } from '@maison/engine';
 import { api, type DaySummary, type SheetData, type SheetReply, type StaffBooking, type StaffSlot } from '../api';
 import { Balls, BookingPanel, HoldClose, NewBooking } from './panels';
+import { useWaiting, Waiting, type WaitingEntry } from './Waiting';
 
 type View = 'day' | 'week';
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -95,7 +96,13 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
   const [justMade, setJustMade] = useState(false);
   const [holding, setHolding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [waitingOpen, setWaitingOpen] = useState(false);
+  const [seat, setSeat] = useState<{ cell: StaffSlot; w: WaitingEntry } | null>(null);
   const seq = useRef<number | null>(null);
+  // Re-draw every half minute so payment countdowns stay current between changes.
+  const [, setTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
+  const waiting = useWaiting(courseId, day, sheet?.seq);
 
   const load = useCallback(async (force = false) => {
     try {
@@ -121,7 +128,7 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
   const openTimes = L ? L.slots.filter((s) => s.state === 'open' || s.state === 'partial').length : 0;
   const checkedIn = bookings.filter((b) => b.status === 'checked_in' || b.status === 'played').length;
   const nowMin = day === today ? localParts(Date.now(), setup.timeZone).minutes : null;
-  const after = (note?: string) => { setAdding(null); setOpen(null); setHolding(false); setSpecialing(false); setNotice(note ?? null); void load(true); };
+  const after = (note?: string) => { setAdding(null); setOpen(null); setHolding(false); setSpecialing(false); setSeat(null); setNotice(note ?? null); void load(true); void waiting.reload(); };
   // Today opens at the current time: the slots that have already teed off are scrolled up out of view.
   const scrolled = useRef(false);
   const sheetBox = useRef<HTMLDivElement>(null);
@@ -147,6 +154,7 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
         <p><b>{checkedIn}</b> checked in</p>
         <div className="fore-sum-actions">
           <button className={`fore-chip-toggle${onlyOpen ? ' on' : ''}`} aria-pressed={onlyOpen} onClick={toggleOpen}><i aria-hidden />Only available slots</button>
+          <Btn onClick={() => setWaitingOpen(true)}>Waiting{waiting.list.length ? <span className="fore-count">{waiting.list.length}</span> : null}</Btn>
           {readOnly ? <span className="muted small">View only</span> : (
             <>
               {canSpecial ? <Btn onClick={() => setSpecialing(true)}>Special booking</Btn> : null}
@@ -200,13 +208,17 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
                 <div className="fore-time"><span>{formatTime(time).replace(/ (AM|PM)$/, '')}</span><small>{time < 720 ? 'am' : 'pm'}</small></div>
                 {cells.map((c) => (onlyOpen && !bookableSlot(c)
                   ? <div key={c.startTee} className="fore-flight s-hidden" aria-hidden />
-                  : <Flight key={c.startTee} c={c} onAdd={readOnly ? undefined : setAdding} onOpen={setOpen} />))}
+                  : <Flight key={c.startTee} c={c} tz={setup.timeZone} onAdd={readOnly ? undefined : setAdding} onOpen={setOpen} />))}
               </div>
             );
           })}
         </div>
       )}
       {specialing ? <NewBooking courseId={courseId} special={{ day }} setup={setup} onClose={() => setSpecialing(false)} onDone={(made) => { after(); if (made) { setOpen(made); setJustMade(true); } }} /> : null}
+      {waitingOpen && L ? <Waiting courseId={courseId} day={day} today={today} list={waiting.list} slots={L.slots} timeZone={setup.timeZone} readOnly={readOnly}
+        onSeat={(cell, w) => { setWaitingOpen(false); setSeat({ cell, w }); }} onClose={() => setWaitingOpen(false)} onChanged={() => void waiting.reload()} /> : null}
+      {seat ? <NewBooking courseId={courseId} cell={seat.cell} setup={setup} prefill={{ contactName: seat.w.contactName, mobile: seat.w.mobile, notes: seat.w.notes, players: seat.w.players, standbyId: seat.w.id }}
+        onClose={() => setSeat(null)} onDone={(made) => { after(); if (made) { setOpen(made); setJustMade(true); } }} /> : null}
       {adding ? <NewBooking courseId={courseId} cell={adding} setup={setup} onClose={() => setAdding(null)} onDone={(made) => { after(); if (made) { setOpen(made); setJustMade(true); } }} /> : null}
       {open ? <BookingPanel key={open.id} courseId={courseId} b={open} setup={setup} readOnly={readOnly} justMade={justMade} onClose={() => { setOpen(null); setJustMade(false); }} onDone={() => { setJustMade(false); after(); }} /> : null}
       {holding && L ? <HoldClose courseId={courseId} day={day} tees={tees} layoutId={L.layout.id} firstTee={times[0]} lastTee={times.at(-1)} onClose={() => setHolding(false)} onDone={after} /> : null}
@@ -214,24 +226,42 @@ function DayView({ courseId, setup, day, today, layoutId, readOnly, canSpecial, 
   );
 }
 
-function Flight({ c, onAdd, onOpen }: { c: StaffSlot; onAdd?: (c: StaffSlot) => void; onOpen: (b: StaffBooking) => void }) {
+function Flight({ c, tz, onAdd, onOpen }: { c: StaffSlot; tz: string; onAdd?: (c: StaffSlot) => void; onOpen: (b: StaffBooking) => void }) {
   const bookable = !!onAdd && c.state !== 'past' && c.state !== 'closed' && c.free > 0;
+  const now = Date.now();
   return (
     <div className={`fore-flight s-${c.state}${c.block ? ` k-${c.block.kind}` : ''}`}>
       {c.state === 'closed' ? <span className="fore-closed">{c.block?.reason ?? 'Closed'}</span> : <Balls capacity={c.capacity} used={c.used} />}
       <div className="fore-who">
-        {c.bookings.map((b) => (
-          <button key={b.id} className={`fore-golfer b-${isPencil(b, Date.now()) ? 'pencil' : b.status}`} onClick={() => onOpen(b)}>
-            <span className="n">{b.contactName}</span>
-            <span className="p">{b.players}</span>
-            {isPencil(b, Date.now()) ? <span className="st">Pencil</span> : b.status !== 'confirmed' ? <span className="st">{STATUS_WORDS[b.status]}</span> : null}
-          </button>
-        ))}
+        {c.bookings.map((b) => {
+          const pencil = isPencil(b, now);
+          const note = chipNote(b, now, tz);
+          return (
+            <button key={b.id} className={`fore-golfer b-${pencil ? 'pencil' : b.status}${note?.soon ? ' due-soon' : ''}`} onClick={() => onOpen(b)}>
+              <span className="n">{b.contactName}</span>
+              <span className="p">{b.players}</span>
+              {note ? <span className="st">{note.text}</span> : null}
+            </button>
+          );
+        })}
         {c.state === 'held' && !c.bookings.length ? <span className="fore-held">{c.block?.reason ?? 'Held'}</span> : null}
       </div>
       {bookable ? <button className={`fore-book${c.state === 'held' ? ' held' : ''}`} onClick={() => onAdd?.(c)} aria-label={`Book ${formatTime(c.time)}, tee ${c.startTee}${c.state === 'held' ? ', held' : ''}`}>{c.state === 'held' ? 'Book held time' : 'Book'}</button> : null}
     </div>
   );
+}
+
+/** The few words on a booking's chip: pencil, a hold's end, or when an unpaid booking must pay by. */
+function chipNote(b: StaffBooking, now: number, tz: string): { text: string; soon?: boolean } | null {
+  const clock = (ms: number) => formatTime(localParts(ms, tz).minutes).replace(/ (AM|PM)$/, (m) => m.toLowerCase().replace(' ', ''));
+  if (isPencil(b, now)) return { text: 'Pencil' };
+  if (b.status === 'held' && b.holdExpiresAt) return { text: b.createdBy === 'waitlist' ? `Waitlist offer to ${clock(b.holdExpiresAt)}` : `Pay by ${clock(b.holdExpiresAt)}`, soon: true };
+  if (b.status === 'confirmed' && b.payStatus === 'unpaid' && b.payDueBy) {
+    const left = b.payDueBy - now;
+    if (left < 3_600_000) return { text: `Pay in ${Math.max(1, Math.ceil(left / 60_000))} min`, soon: true };
+    return { text: localParts(b.payDueBy, tz).day === b.day ? `Pay by ${clock(b.payDueBy)}` : 'Unpaid' };
+  }
+  return b.status !== 'confirmed' ? { text: STATUS_WORDS[b.status] } : null;
 }
 
 /** Scrolls the page so a row sits just under the frozen top (title, date strip, summary and column headings). */

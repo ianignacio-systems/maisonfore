@@ -29,6 +29,13 @@ services:
         sync: false
       - key: PLATFORM_ADMIN_EMAILS          # who can open Maison admin, comma-separated
         sync: false
+      # Phone alerts for golfers (optional; SETUP.md A5). Without them golfers still see messages in the app.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY              # secret: only ever in Render's Environment, never in code or chat
+        sync: false
+      - key: VAPID_SUBJECT                  # mailto: address push services can contact, e.g. mailto:you@example.com
+        sync: false
 
 databases:
   - name: maisonfore-db

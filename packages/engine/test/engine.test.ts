@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  dueByNow, lapsedUnpaid, mustPayNow, payDeadline,
   DEFAULT_RULES,
   addDays, buildSheet, canChange, checkBooking, checkSettings, dayType, formatDay, formatTime, golferCanChange, isOpen, localParts, newRef,
-  opensMessage, priceFor, publicWindow, settingsFor, takesSlot, teeTimes, zonedEpoch, type Block,
+  opensMessage, priceFor, publicWindow, settingsFor, takesSlot, teeTimes, zonedEpoch, type Block, type CourseSetup,
 } from '../src';
 import { at, booking, course, TZ } from './helpers';
 
@@ -259,5 +260,36 @@ describe('booking status', () => {
   it('makes readable reference codes', () => {
     const ref = newRef((n) => new Uint8Array(n).map((_, i) => i * 7));
     expect(ref).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
+  });
+});
+
+describe('paying by a deadline', () => {
+  const MON = '2026-11-23';
+  const rules = (r: Partial<CourseSetup['rules']>) => course({ rules: { ...course().rules, ...r } });
+  it('has no deadline unless the club sets one, and none for staff bookings', () => {
+    expect(payDeadline(course(), { day: MON, time: 420, channel: 'phone' }, at('2026-11-20', '12:00'))).toBeNull();
+    expect(payDeadline(rules({ payBeforeMinutes: 30 }), { day: MON, time: 420, channel: 'staff' }, at('2026-11-20', '12:00'))).toBeNull();
+  });
+  it('takes the earlier of the time before the tee time and the days after booking, never after the tee time', () => {
+    const c = rules({ payBeforeMinutes: 30, payWithinDays: 1 });
+    expect(payDeadline(c, { day: MON, time: 420, channel: 'phone' }, at('2026-11-20', '12:00'))).toBe(at('2026-11-21', '12:00'));
+    expect(payDeadline(c, { day: MON, time: 420, channel: 'app' }, at('2026-11-23', '05:00'))).toBe(at(MON, '06:30'));
+    expect(payDeadline(rules({ payWithinDays: 3 }), { day: MON, time: 420, channel: 'viber' }, at('2026-11-22', '12:00'))).toBe(at(MON, '07:00'));
+  });
+  it('asks same-day walk-ins and late phone bookings to pay on the spot; late app bookings pay before teeing off', () => {
+    const c = rules({ payBeforeMinutes: 60 });
+    expect(mustPayNow(c, { day: MON, time: 900, channel: 'walkin' }, at(MON, '06:00'))).toBe(true);
+    expect(mustPayNow(c, { day: '2026-11-24', time: 900, channel: 'walkin' }, at(MON, '06:00'))).toBe(false);
+    expect(mustPayNow(c, { day: MON, time: 420, channel: 'phone' }, at(MON, '06:30'))).toBe(true);
+    expect(mustPayNow(c, { day: MON, time: 420, channel: 'phone' }, at(MON, '05:30'))).toBe(false);
+    expect(dueByNow(c, { day: MON, time: 420, channel: 'app' }, at(MON, '06:30'), at(MON, '06:30'))).toBe(at(MON, '07:00'));
+  });
+  it('counts an app booking never paid, whose tee time went by, as a no-show', () => {
+    const c = rules({ payBeforeMinutes: 60 });
+    const b = { day: MON, time: 420, status: 'confirmed' as const, channel: 'app' as const, payDueBy: at(MON, '06:00'), payStatus: 'unpaid' };
+    expect(lapsedUnpaid(c, b, at(MON, '06:30'))).toBe(false);
+    expect(lapsedUnpaid(c, b, at(MON, '07:01'))).toBe(true);
+    expect(lapsedUnpaid(c, { ...b, payStatus: 'paid_course' }, at(MON, '07:01'))).toBe(false);
+    expect(lapsedUnpaid(c, { ...b, channel: 'phone' }, at(MON, '07:01'))).toBe(false);
   });
 });
