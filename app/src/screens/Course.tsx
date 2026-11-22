@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { holesOffered, minPlayers, peso, priceFor, quote, type CourseSetup, type PlayerType } from '@maison/engine';
+import { counterSplit, holesOffered, minPlayers, peso, priceFor, quote, type CourseSetup, type PlayerType } from '@maison/engine';
 import { api, teeFor, teeTimes, type CoursePage, type Me, type MyBooking, type TeeTime, type Times } from '../api';
 import { Button, clock, CourseArt, DayPart, Days, go, Pass, PriceList, Sheet, shortDay, Spots, Stepper } from '../ui';
 
@@ -119,7 +119,7 @@ function Book({ page, me, day, layoutId, slot, onClose }: { page: CoursePage; me
   const players = types.slice(0, count);
   const tee = teeFor(slot, count);
   const q = useMemo(() => quote(s, { layoutId, day, time: slot.time, holes, players, carts, caddies: 0, gallery, extras }), [s, layoutId, day, slot.time, holes, players.join(), carts, gallery, extras.join()]); // eslint-disable-line react-hooks/exhaustive-deps
-  const total = q.lines.filter((l) => l.payAt === 'booking').reduce((t, l) => t + l.amount, 0);
+  const total = counterSplit(q.lines, true).total; // what the counter collects on arrival
   const required = s.rules.playerNames === 'required';
   const missingName = required && names.slice(1, count).some((x) => !x.trim());
 

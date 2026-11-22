@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { formatDay, localParts, weekday } from '@maison/engine';
+import { counterSplit, formatDay, localParts, peso, weekday } from '@maison/engine';
 import { api, teeFor, teeTimes, type MyBooking, type Times } from '../api';
 import { Button, clock, Days, go, Pass, PriceList, Sheet, SHORT, shortDay } from '../ui';
 
@@ -73,7 +73,7 @@ function Ticket({ b, onClose, onChanged }: { b: MyBooking; onClose: () => void; 
             <div><dt>Players</dt><dd>{b.players}, {b.holes} holes</dd></div>
             {b.carts || b.caddies || b.gallery ? <div><dt>With</dt><dd>{[b.carts ? `${b.carts} ${b.carts === 1 ? 'cart' : 'carts'}` : '', b.caddies ? `${b.caddies} ${b.caddies === 1 ? 'caddie' : 'caddies'}` : '', b.gallery ? `${b.gallery} gallery` : ''].filter(Boolean).join(', ')}</dd></div> : null}
             {b.layoutName || b.startTee !== '1' ? <div><dt>Starts</dt><dd>{[b.layoutName, b.startTee !== '1' ? `tee ${b.startTee}` : ''].filter(Boolean).join(', ')}</dd></div> : null}
-            <div><dt>Payment</dt><dd>{b.payStatus === 'unpaid' ? 'Pay at the course' : 'Paid'}</dd></div>
+            <div><dt>Payment</dt><dd>{b.payStatus === 'unpaid' ? `Pay ${peso(counterSplit(b.quote, true).total)} at the course` : 'Paid'}</dd></div>
           </dl>
           <ol className="pl-roster">{b.roster.map((p, i) => <li key={i}><span>{p.name || `Player ${i + 1}`}</span><small>{p.type}</small></li>)}</ol>
           <PriceList lines={b.quote} payWord={b.payStatus === 'unpaid' ? 'Pay at the course' : 'Total'} />

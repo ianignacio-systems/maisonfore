@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import QRCode from 'qrcode';
-import { addDays, formatTime, peso, weekday, type QuoteLine } from '@maison/engine';
+import { addDays, counterSplit, formatTime, peso, weekday, type QuoteLine } from '@maison/engine';
 
 export const SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -83,22 +83,23 @@ export function Days({ from, count, value, onPick, lastBookable }: { from: strin
   );
 }
 
-/** The price: what's paid for the booking, then what's paid separately (at the counter or to the caddie). */
+/**
+ * The price, as the counter collects it: golfers pay at the course, so everything the counter takes is in
+ * one total (fees paid at the counter included); only the caddie fee is settled separately.
+ */
 export function PriceList({ lines, payWord = 'Total' }: { lines: QuoteLine[]; payWord?: string }) {
-  const withBooking = lines.filter((l) => l.payAt === 'booking' || (l.payAt as string) === 'app');
-  const separate = lines.filter((l) => !withBooking.includes(l));
-  const total = withBooking.reduce((s, l) => s + l.amount, 0);
-  const row = (l: QuoteLine) => (
+  const { collect, separate, total } = counterSplit(lines, true);
+  const row = (l: QuoteLine, apart: boolean) => (
     <div key={l.key} className="pl-price-row">
-      <span>{l.label}<small>{l.detail}{l.payAt === 'direct' ? ', at least, paid to the caddie' : l.payAt === 'counter' ? ', paid at the counter' : ''}</small></span>
+      <span>{l.label}<small>{l.detail}{apart ? (l.payAt === 'direct' ? ', at least, paid to the caddie' : l.payAt === 'counter' ? ', paid at the caddie counter' : '') : ''}</small></span>
       <b>{peso(l.amount)}</b>
     </div>
   );
   return (
     <div className="pl-price">
-      {withBooking.map(row)}
+      {collect.map((l) => row(l, false))}
       <div className="pl-price-row total"><span>{payWord}</span><b>{peso(total)}</b></div>
-      {separate.length ? <><p className="pl-price-sep">Paid separately at the course</p>{separate.map(row)}</> : null}
+      {separate.length ? <><p className="pl-price-sep">Paid separately</p>{separate.map((l) => row(l, true))}</> : null}
     </div>
   );
 }

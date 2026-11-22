@@ -1,10 +1,10 @@
 import type { Caller, Db } from '@maison/core';
-import { addDays, buildSheet, isPencil, localParts, takesSlot, type QuoteLine } from '@maison/engine';
+import { addDays, buildSheet, dueWithBooking, isPencil, localParts, takesSlot } from '@maison/engine';
 import { BOOKING_COLS, bookingOf, daySummary, type BookingRow } from './bookings';
 import { CAN, loadSetup, roleAt } from './courses';
 
-/** What is paid with the booking: its price less fees paid separately (at the counter, or direct to the caddie). */
-const collectable = (b: BookingRow) => (b.quote.length ? b.quote.filter((l: QuoteLine) => (l.payAt as string) === 'booking' || (l.payAt as string) === 'app').reduce((s, l) => s + l.amount, 0) : b.amount);
+/** What the counter collects: app bookings paid on arrival include the counter fees (never the caddie's). */
+const collectable = (b: BookingRow) => dueWithBooking(b);
 const paid = (b: BookingRow) => (b.payStatus === 'unpaid' ? 0 : b.payStatus === 'paid_online' ? b.payInApp || collectable(b) : b.paidAmount);
 
 /**
@@ -66,7 +66,7 @@ export async function overview(db: Db, c: Caller, courseId: string, now = Date.n
       }
     }
     const loose = dayRows.filter((b) => !b.special && !onSheet.has(`${b.layoutId}|${b.startTee}|${b.time}`)).length;
-    if (loose + blocked) attention.push({ kind: 'move', day: d.day, text: `${loose + blocked} ${loose + blocked === 1 ? 'booking' : 'bookings'} on ${d.day === today ? 'today’s' : 'a'} closed or removed tee slot. Call to move or cancel.` });
+    if (loose + blocked) attention.push({ kind: 'move', day: d.day, text: `${loose + blocked} ${loose + blocked === 1 ? 'booking' : 'bookings'} on ${d.day === today ? 'today’s' : 'a'} closed or removed tee time. Call to move or cancel.` });
   }
   if (c && (await db.query("select 1 from members where business_id = $1 and account_id = $2 and role = 'owner'", [courseId, c.accountId])).length) {
     const invites = await db.query('select email from invites where business_id = $1', [courseId]);

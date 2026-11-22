@@ -31,6 +31,8 @@ export interface QuoteLine {
   /** Paid with the booking, separately at the counter, or straight to the caddie (a minimum). */
   payAt: PaidTo;
   feeId: string | null;
+  /** What the line is for: a green fee or a fee's kind. Lines priced before this was kept have none. */
+  kind?: 'green' | Fee['kind'];
 }
 
 export interface Quote {
@@ -105,7 +107,7 @@ export function quote(setup: CourseSetup, r: QuoteRequest): Quote {
     if (p) problems.push(p);
     const each = priceFor(setup, id, holes, r.day, r.time);
     if (each === null) problems.push(`There is no ${holes}-hole ${dayType(r.day, setup.holidays)} green fee for ${t.name} yet.`);
-    lines.push({ key: `green:${id}`, label: `Green fee, ${t.name}`, detail: `${count} × ${peso(each ?? 0)}`, qty: count, amount: (each ?? 0) * count, payAt: 'booking', feeId: null });
+    lines.push({ key: `green:${id}`, label: `Green fee, ${t.name}`, detail: `${count} × ${peso(each ?? 0)}`, qty: count, amount: (each ?? 0) * count, payAt: 'booking', feeId: null, kind: 'green' });
   }
 
   const fees = setup.fees.filter((f) => f.active);
@@ -125,7 +127,7 @@ export function quote(setup: CourseSetup, r: QuoteRequest): Quote {
     if (!qty) return;
     const each = feeAmount(f, holes, dt, null);
     if (each === null) problems.push(`${f.name} has no amount for ${holes} holes yet.`);
-    lines.push({ key: `fee:${f.id}`, label, detail: `${qty} × ${peso(each ?? 0)}`, qty, amount: (each ?? 0) * qty, payAt: f.paidTo, feeId: f.id });
+    lines.push({ key: `fee:${f.id}`, label, detail: `${qty} × ${peso(each ?? 0)}`, qty, amount: (each ?? 0) * qty, payAt: f.paidTo, feeId: f.id, kind: f.kind });
   };
   if (cart) counted(cart, carts, carts === 1 ? cart.name : `${cart.name} (${carts} carts)`);
   if (caddie) counted(caddie, caddies, caddies === 1 ? caddie.name : `${caddie.name} (${caddies} caddies)`);
@@ -150,7 +152,7 @@ export function quote(setup: CourseSetup, r: QuoteRequest): Quote {
       if (each !== null) parts.push(`${count} × ${peso(each)}`);
     }
     if (missing) problems.push(`${f.name} has no amount for ${holes} holes yet.`);
-    if (n && (amount || missing)) lines.push({ key: `fee:${f.id}`, label: f.name, detail: byType ? parts.join(' + ') : `${n} × ${peso(feeAmount(f, holes, dt, null) ?? 0)}`, qty: n, amount, payAt: f.paidTo, feeId: f.id });
+    if (n && (amount || missing)) lines.push({ key: `fee:${f.id}`, label: f.name, detail: byType ? parts.join(' + ') : `${n} × ${peso(feeAmount(f, holes, dt, null) ?? 0)}`, qty: n, amount, payAt: f.paidTo, feeId: f.id, kind: f.kind });
   }
 
   const total = lines.reduce((s, l) => s + l.amount, 0);
@@ -159,4 +161,23 @@ export function quote(setup: CourseSetup, r: QuoteRequest): Quote {
 
 function listWords(ws: string[]): string {
   return ws.length <= 1 ? ws.join('') : `${ws.slice(0, -1).join(', ')} and ${ws.at(-1)}`;
+}
+
+/** Lines as the counter sees them: payAt 'app' and 'course' are the old names for 'booking' and 'counter'. */
+type LineLike = { amount: number; payAt: string; label?: string; kind?: string };
+const payTo = (l: LineLike) => (l.payAt === 'app' ? 'booking' : l.payAt === 'course' ? 'counter' : l.payAt);
+/** A caddie fee line (older lines don't say their kind, so their label tells). */
+export const isCaddieLine = (l: LineLike) => l.kind === 'caddie' || (!l.kind && /caddie/i.test(l.label ?? ''));
+
+/**
+ * Which lines the counter collects as one total, and which are settled separately.
+ * Paid with the booking: always in the total. Fees paid "separately at the counter": in the total too when
+ * the whole booking is paid at the course (an app booking paying on arrival), since the same counter takes
+ * them. Caddie fees stay separate either way unless paid with the booking: golfers pay the caddie directly
+ * or at the caddie's own counter.
+ */
+export function counterSplit<L extends LineLike>(lines: L[], payAtCourse: boolean): { collect: L[]; separate: L[]; total: number } {
+  const collect = lines.filter((l) => payTo(l) === 'booking' || (payAtCourse && payTo(l) === 'counter' && !isCaddieLine(l)));
+  const separate = lines.filter((l) => !collect.includes(l));
+  return { collect, separate, total: collect.reduce((s, l) => s + l.amount, 0) };
 }

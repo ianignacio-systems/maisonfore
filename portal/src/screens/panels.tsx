@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Btn, Field, Seg, Select, Sheet, Stepper } from '@maison/core/ui/kit';
-import { addDays, formatDay, formatTime, holesOffered, isPencil, minPlayers, paidForCheckIn, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
+import { addDays, counterSplit, dueWithBooking, formatDay, formatTime, holesOffered, isPencil, minPlayers, paidForCheckIn, peso, quote, STATUS_WORDS, type CourseSetup, type QuoteLine } from '@maison/engine';
 import { api, type SheetData, type StaffBooking, type StaffSlot } from '../api';
 
 const toMin = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
@@ -142,15 +142,14 @@ export function NewBooking({ courseId, cell, special, setup, onClose, onDone }: 
 }
 
 /** The price, line by line, with what's paid at the course marked. */
-export function Price({ lines, problems = [] }: { lines: QuoteLine[]; total?: number; problems?: string[] }) {
+export function Price({ lines, problems = [], payAtCourse = false }: { lines: QuoteLine[]; total?: number; problems?: string[]; payAtCourse?: boolean }) {
   // Bookings priced before payment targets were named say 'app' and 'course'.
   const to = (l: QuoteLine): string => (l.payAt as string) === 'app' ? 'booking' : (l.payAt as string) === 'course' ? 'counter' : l.payAt;
-  const withBooking = lines.filter((l) => to(l) === 'booking');
-  const separate = lines.filter((l) => to(l) !== 'booking');
-  const total = withBooking.reduce((s, l) => s + l.amount, 0);
+  // App bookings paid at the course: the counter also collects the fees paid at the counter (not the caddie's).
+  const { collect: withBooking, separate, total } = counterSplit(lines, payAtCourse);
   const row = (l: QuoteLine) => (
     <div key={l.key}>
-      <dt>{l.label}<small>{l.detail}{to(l) === 'counter' ? ', paid at the counter' : to(l) === 'direct' ? ' at least, paid direct to the caddie' : ''}</small></dt>
+      <dt>{l.label}<small>{l.detail}{separate.includes(l) && to(l) === 'counter' ? ', paid at the counter' : to(l) === 'direct' ? ' at least, paid direct to the caddie' : ''}</small></dt>
       <dd>{peso(l.amount)}</dd>
     </div>
   );
@@ -159,7 +158,7 @@ export function Price({ lines, problems = [] }: { lines: QuoteLine[]; total?: nu
       {problems.length ? <ul className="fore-price-warn">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
       <dl>
         {withBooking.map(row)}
-        <div className="total"><dt>Total{separate.length ? <small>Paid with the booking</small> : null}</dt><dd>{peso(total)}</dd></div>
+        <div className="total"><dt>Total{separate.length ? <small>{payAtCourse ? 'Collected at the counter' : 'Paid with the booking'}</small> : null}</dt><dd>{peso(total)}</dd></div>
       </dl>
       {separate.length ? (
         <dl className="fore-price-sep">
@@ -219,7 +218,7 @@ export function BookingPanel({ courseId, b, setup, readOnly, justMade, onClose, 
           </dd></div>
         ) : null}
       </dl>
-      {b.quote?.length ? <Price lines={b.quote} total={b.amount} /> : null}
+      {b.quote?.length ? <Price lines={b.quote} total={b.amount} payAtCourse={b.channel === 'app' && b.payStatus !== 'paid_online'} /> : null}
 
       {readOnly ? <p className="muted small">You can view bookings. Ask the owner if you need to change them.</p> : mode === 'view' ? (
         <>
@@ -303,7 +302,7 @@ function MoveBooking({ courseId, b, setup, onBack, onDone }: { courseId: string;
 /** Payment taken at the counter: cash, GCash, Maya, card or bank transfer, with its reference number. */
 function RecordPayment({ courseId, b, justMade, onBack, onDone }: { courseId: string; b: StaffBooking; justMade?: boolean; onBack: () => void; onDone: () => void }) {
   // The total paid with the booking; fees paid separately (at the counter, or direct to the caddie) are not part of it.
-  const due = b.quote?.length ? b.quote.filter((l) => (l.payAt as string) === 'booking' || (l.payAt as string) === 'app').reduce((s, l) => s + l.amount, 0) : b.amount;
+  const due = dueWithBooking(b);
   const [amount, setAmount] = useState(String(due / 100));
   const [method, setMethod] = useState('cash');
   const [ref, setRef] = useState('');

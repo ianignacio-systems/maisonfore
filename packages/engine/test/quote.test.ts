@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { feeAmount, holesOffered, quote, type Fee } from '../src';
+import { counterSplit, dueWithBooking, feeAmount, holesOffered, quote, type Fee } from '../src';
 import { course, pt } from './helpers';
 
 // A Philippine-style rate card: locals and foreigners, seniors on Wednesdays, juniors from 11:00 AM,
@@ -94,6 +94,20 @@ describe('quote', () => {
     const none = quote({ ...off, options: { ...off.options, galleryMax: 0 } }, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['LOC'], gallery: 2 });
     expect(none.gallery).toBe(0);
     expect(none.lines.some((l) => l.feeId === 'GAL')).toBe(false);
+  });
+
+  it('puts counter fees in the total when an app booking pays at the course, but never the caddie fee', () => {
+    const counterGallery = { ...ph, fees: ph.fees.map((f) => (f.kind === 'gallery' ? { ...f, paidTo: 'counter' as const } : f.kind === 'caddie' ? { ...f, paidTo: 'counter' as const } : f)) };
+    const q = quote(counterGallery, { layoutId: 'L18', day: MON, time: 420, holes: 18, players: ['LOC'], gallery: 1, extras: ['LOCK'] });
+    const atCourse = counterSplit(q.lines, true), staff = counterSplit(q.lines, false);
+    expect(atCourse.collect.map((l) => l.feeId)).toEqual(expect.arrayContaining(['GAL', 'LOCK']));
+    expect(atCourse.separate.map((l) => l.feeId)).toEqual(['CAD']);
+    expect(staff.separate.map((l) => l.feeId).sort()).toEqual(['CAD', 'GAL', 'LOCK']);
+    expect(dueWithBooking({ quote: q.lines, amount: q.total, channel: 'app' })).toBe(atCourse.total);
+    expect(dueWithBooking({ quote: q.lines, amount: q.total, channel: 'phone' })).toBe(staff.total);
+    // Lines saved before they carried their kind: the caddie line is known by its label.
+    const old = q.lines.map(({ kind: _k, ...l }) => l); // eslint-disable-line @typescript-eslint/no-unused-vars
+    expect(counterSplit(old, true).separate.map((l) => l.feeId)).toEqual(['CAD']);
   });
 
   it('flags player types outside their days or hours, and missing green fees', () => {

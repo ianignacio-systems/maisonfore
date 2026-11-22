@@ -1,3 +1,4 @@
+import { counterSplit } from './quote';
 import { zonedEpoch } from './time';
 import type { Booking, BookingStatus, CourseSetup } from './types';
 
@@ -9,16 +10,19 @@ export function isPencil(b: Pick<Booking, 'status' | 'payDueBy'>, now: number): 
   return b.status === 'confirmed' && b.payDueBy !== undefined && b.payDueBy !== null && b.payDueBy <= now;
 }
 
+type Payable = { quote?: { amount: number; payAt: string; label?: string; kind?: string }[] | null; amount: number; channel?: string };
+
 /**
- * What the counter collects for a booking: the lines paid with the booking (not fees paid separately or
- * straight to the caddie). Bookings made before prices were kept line by line owe their whole amount.
+ * What the counter collects for a booking. Staff bookings: the lines paid with the booking. App bookings
+ * (paid at the course for now): those plus the fees paid at the counter, but never the caddie fee. Bookings
+ * made before prices were kept line by line owe their whole amount.
  */
-export function dueWithBooking(b: { quote?: { amount: number; payAt: string }[] | null; amount: number }): number {
-  return b.quote?.length ? b.quote.filter((l) => l.payAt === 'booking' || l.payAt === 'app').reduce((s, l) => s + l.amount, 0) : b.amount;
+export function dueWithBooking(b: Payable): number {
+  return b.quote?.length ? counterSplit(b.quote, b.channel === 'app').total : b.amount;
 }
 
 /** A booking can be checked in only once it's paid (or when nothing is paid with the booking). */
-export function paidForCheckIn(b: { payStatus: string; quote?: { amount: number; payAt: string }[] | null; amount: number }): boolean {
+export function paidForCheckIn(b: Payable & { payStatus: string }): boolean {
   return b.payStatus !== 'unpaid' || dueWithBooking(b) === 0;
 }
 
