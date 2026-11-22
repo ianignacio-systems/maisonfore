@@ -16,9 +16,11 @@ export function loadConfig() {
     supabaseUrl,
     jwtSecret: env.SUPABASE_JWT_SECRET ?? '',
     port: Number(env.PORT ?? 8787),
-    corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:5174').split(',').map((s) => s.trim()).filter(Boolean),
+    corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:5174,http://localhost:5175').split(',').map((s) => s.trim()).filter(Boolean),
     /** SERVE_PORTAL=1: serve the built portal (portal/dist) from this server too. */
     portalDir: env.SERVE_PORTAL === '1' ? (env.PORTAL_DIR || new URL('../../portal/dist', import.meta.url).pathname) : '',
+    /** With SERVE_PORTAL=1, the golfer app (app/dist) is served at /play. */
+    appDir: env.SERVE_PORTAL === '1' ? (env.APP_DIR || new URL('../../app/dist', import.meta.url).pathname) : '',
     adminEmails: (env.PLATFORM_ADMIN_EMAILS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   };
 }

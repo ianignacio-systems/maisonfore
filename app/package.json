@@ -1,0 +1,30 @@
+{
+  "name": "maisonfore-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The MaisonFore golfer app: find partner courses, book tee times, show the booking at the course. A web app that installs on phones.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p . && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@fontsource/schibsted-grotesk": "^5.2.6",
+    "@maison/core": "0.1.0",
+    "@maison/engine": "0.1.0",
+    "@supabase/supabase-js": "2.118.0",
+    "qrcode": "1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/qrcode": "1.5.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5"
+  }
+}

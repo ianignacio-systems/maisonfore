@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { audit, newId, NotFound, UserError, type Caller, type Db } from '@maison/core';
 import {
-  addDays, buildSheet, canChange, checkBooking, isPencil, daysBetween, formatDay, formatTime, localParts, newRef, priceFor, quote, STATUS_WORDS, takesSlot, teeMoment,
+  addDays, buildSheet, canChange, checkBooking, golferCanChange, isPencil, daysBetween, formatDay, formatTime, localParts, newRef, priceFor, quote, STATUS_WORDS, takesSlot, teeMoment,
   type Block, type BlockKind, type Booking, type BookingStatus, type Channel, type CourseSetup, type Quote, type QuoteLine, type Slot,
 } from '@maison/engine';
 import { day, int, minutes, mobile, oneOf, text } from './check';
@@ -84,14 +84,14 @@ export async function staffSheet(db: Db, c: Caller, courseId: string, q: { day?:
 }
 
 /** Locks one slot for the rest of the transaction (the row is made the first time the slot is booked). */
-async function lockSlot(q: Db, courseId: string, layoutId: string, startTee: string, d: string, time: number) {
+export async function lockSlot(q: Db, courseId: string, layoutId: string, startTee: string, d: string, time: number) {
   await q.query('insert into slot_locks (business_id, layout_id, start_tee, day, time_min) values ($1, $2, $3, $4, $5) on conflict do nothing', [courseId, layoutId, startTee, d, time]);
   await q.query('select 1 from slot_locks where business_id = $1 and layout_id = $2 and start_tee = $3 and day = $4 and time_min = $5 for update', [courseId, layoutId, startTee, d, time]);
 }
 
-interface Wanted { layoutId: string; startTee: string; day: string; time: number; players: number }
+export interface Wanted { layoutId: string; startTee: string; day: string; time: number; players: number }
 
-function wanted(input: Record<string, unknown>): Wanted {
+export function wanted(input: Record<string, unknown>): Wanted {
   return {
     layoutId: text(input.layoutId, 'the layout', { required: true, max: 40 }),
     startTee: text(input.startTee ?? '1', 'the starting tee', { required: true, max: 4 }),
@@ -101,10 +101,12 @@ function wanted(input: Record<string, unknown>): Wanted {
   };
 }
 
-/** Staff: refuses with the engine's reason when the slot can't take this booking. */
-async function checkSlot(q: Db, setup: CourseSetup, courseId: string, w: Wanted, now: number, movingBookingId?: string) {
-  const sheet = buildSheet(setup, { layoutId: w.layoutId, day: w.day, bookings: await dayBookings(q, courseId, w.day, w.layoutId), blocks: await dayBlocks(q, courseId, w.day), now, audience: 'staff' });
-  const problem = checkBooking(setup, sheet, { ...w, audience: 'staff', movingBookingId });
+/** Refuses with the engine's reason when the slot can't take this booking (staff rules, or the app's for golfers). */
+export async function checkSlot(q: Db, setup: CourseSetup, courseId: string, w: Wanted, now: number, movingBookingId?: string,
+  golfer?: { openBookings: number; recentNoShows: number }) {
+  const audience = golfer ? 'public' as const : 'staff' as const;
+  const sheet = buildSheet(setup, { layoutId: w.layoutId, day: w.day, bookings: await dayBookings(q, courseId, w.day, w.layoutId), blocks: await dayBlocks(q, courseId, w.day), now, audience });
+  const problem = checkBooking(setup, sheet, { ...w, audience, movingBookingId, golferOpenBookings: golfer?.openBookings, golferRecentNoShows: golfer?.recentNoShows });
   if (problem) throw new UserError(problem);
 }
 
@@ -112,7 +114,7 @@ async function checkSlot(q: Db, setup: CourseSetup, courseId: string, w: Wanted,
  * Each player's name, the first defaulting to the name for the booking. Where the club requires every
  * player's name, refuses a booking with any missing.
  */
-function playerNamesOf(setup: CourseSetup, input: Record<string, unknown>, players: number, contactName: string): string[] {
+export function playerNamesOf(setup: CourseSetup, input: Record<string, unknown>, players: number, contactName: string): string[] {
   const given: string[] = Array.isArray(input.playerNames) ? input.playerNames.map((n) => text(n, 'a player name', { max: 80 })) : [];
   const names = Array.from({ length: players }, (_, i) => given[i] || (i === 0 ? contactName : ''));
   if (setup.rules.playerNames === 'required' && names.some((n) => !n)) throw new UserError('Enter the name of every player. The club asks for all names.');
@@ -128,7 +130,7 @@ function graceEnd(setup: CourseSetup, channel: string, now: number): number | nu
 /** What the booking includes besides the slot: holes, each player's type, carts, caddies, gallery, optional fees. */
 interface Pick { holes: 9 | 18; types: string[]; carts: number; caddies: number; gallery: number; extras: string[] }
 
-function pickOf(setup: CourseSetup, input: Record<string, unknown>, players: number, before?: Pick): Pick {
+export function pickOf(setup: CourseSetup, input: Record<string, unknown>, players: number, before?: Pick): Pick {
   const active = setup.playerTypes.filter((t) => t.active);
   const fallback = (active.find((t) => t.public) ?? active[0])?.id ?? '';
   const given = Array.isArray(input.playerTypes) ? input.playerTypes.map((t) => text(t, 'a player type', { max: 40 })) : before?.types ?? [];
@@ -145,14 +147,14 @@ function pickOf(setup: CourseSetup, input: Record<string, unknown>, players: num
   };
 }
 
-function priceOf(setup: CourseSetup, w: Wanted, p: Pick): Quote {
+export function priceOf(setup: CourseSetup, w: Wanted, p: Pick): Quote {
   return quote(setup, { layoutId: w.layoutId, day: w.day, time: w.time, holes: p.holes, players: p.types, carts: p.carts, caddies: p.caddies, gallery: p.gallery, extras: p.extras });
 }
 
 /** The green fee each player pays, by their place in the booking. */
-const greenFees = (setup: CourseSetup, w: Wanted, q: Quote, types: string[]) => types.map((t) => priceFor(setup, t, q.holes, w.day, w.time) ?? 0);
+export const greenFees = (setup: CourseSetup, w: Wanted, q: Quote, types: string[]) => types.map((t) => priceFor(setup, t, q.holes, w.day, w.time) ?? 0);
 
-async function insertRef(q: Db, courseId: string): Promise<string> {
+export async function insertRef(q: Db, courseId: string): Promise<string> {
   for (let i = 0; i < 10; i++) {
     const ref = newRef((n) => randomBytes(n));
     if (!(await q.query('select 1 from bookings where business_id = $1 and ref = $2', [courseId, ref])).length) return ref;
@@ -198,7 +200,7 @@ export async function createBooking(db: Db, c: Caller, courseId: string, input: 
   });
 }
 
-async function getBookingIn(q: Db, courseId: string, id: string): Promise<BookingRow> {
+export async function getBookingIn(q: Db, courseId: string, id: string): Promise<BookingRow> {
   const [r] = await q.query(`select ${BOOKING_COLS} from bookings where business_id = $1 and id = $2`, [courseId, id]);
   if (!r) throw new NotFound('Booking not found.');
   return bookingOf(r);
@@ -213,7 +215,7 @@ export async function getBooking(db: Db, c: Caller, courseId: string, id: string
 }
 
 /** Locks a booking's row for the rest of the transaction. */
-async function lockBooking(q: Db, courseId: string, id: string): Promise<BookingRow> {
+export async function lockBooking(q: Db, courseId: string, id: string): Promise<BookingRow> {
   const [r] = await q.query(`select ${BOOKING_COLS} from bookings where business_id = $1 and id = $2 for update`, [courseId, id]);
   if (!r) throw new NotFound('Booking not found.');
   return bookingOf(r);
@@ -255,16 +257,18 @@ export async function changeStatus(db: Db, c: Caller, courseId: string, id: stri
 }
 
 /** Move a booking to another time, tee or day (PTR-8). Locks both slots, in a fixed order. */
-export async function moveBooking(db: Db, c: Caller, courseId: string, id: string, input: Record<string, unknown>, now = Date.now()): Promise<BookingRow> {
-  await roleAt(db, c, courseId, CAN.daily);
+export async function moveBooking(db: Db, c: Caller, courseId: string, id: string, input: Record<string, unknown>, now = Date.now(),
+  golfer?: { openBookings: number; recentNoShows: number }): Promise<BookingRow> {
+  if (!golfer) await roleAt(db, c, courseId, CAN.daily);
   const setup = await loadSetup(db, courseId);
   return db.tx(async (q) => {
     const b = await lockBooking(q, courseId, id);
     if (b.status !== 'confirmed' && !(b.status === 'held' && takesSlot(b, now))) throw new UserError('Only a confirmed or held booking can be moved.');
+    if (golfer && (b.golferId !== c.accountId || !golferCanChange(setup, b, now))) throw new UserError(`Bookings can be changed in the app up to ${setup.rules.cancelCutoffHours} hours before the tee time. Call the course.`);
     const w = wanted({ ...input, players: input.players ?? b.players });
     const keys = (b.special ? [[w.layoutId, w.startTee, w.day, w.time]] : [[b.layoutId, b.startTee, b.day, b.time], [w.layoutId, w.startTee, w.day, w.time]]) as [string, string, string, number][];
     for (const k of [...keys].sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y)))) await lockSlot(q, courseId, k[0], k[1], k[2], k[3]);
-    await checkSlot(q, setup, courseId, w, now, id);
+    await checkSlot(q, setup, courseId, w, now, id, golfer);
     const had = (await q.query<{ player_type_id: string }>('select player_type_id from booking_players where business_id = $1 and booking_id = $2 order by n', [courseId, id])).map((r) => r.player_type_id);
     const pick = pickOf(setup, input, w.players, { holes: b.holes, types: had, carts: b.carts, caddies: b.caddies, gallery: b.gallery, extras: b.extras });
     const price = priceOf(setup, w, pick);

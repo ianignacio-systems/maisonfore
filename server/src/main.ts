@@ -19,7 +19,7 @@ const applied = await prepareDatabase(db);
 if (applied.length) console.log(`Applied migrations: ${applied.join(', ')}`);
 const verify = cfg.devAuth ? devVerifier() : supabaseVerifier(cfg.supabaseUrl, cfg.jwtSecret);
 if (cfg.devAuth) console.log('Local sign-in (MAISON_DEV_AUTH=1): any email signs in without a password. Never use this online.');
-const app = buildApp({ db, verify, corsOrigins: cfg.corsOrigins, logger: cfg.production, adminEmails: cfg.adminEmails, portalDir: cfg.portalDir || undefined });
+const app = buildApp({ db, verify, corsOrigins: cfg.corsOrigins, logger: cfg.production, adminEmails: cfg.adminEmails, portalDir: cfg.portalDir || undefined, appDir: cfg.appDir || undefined });
 if (cfg.portalDir) console.log(`Serving the portal from ${cfg.portalDir}.`);
 await app.listen({ port: cfg.port, host: '0.0.0.0' });
 console.log(`MaisonFore server on port ${cfg.port}. Maison admins by email: ${cfg.adminEmails.length}.`);

@@ -4,13 +4,22 @@
   "version": "0.1.0",
   "type": "module",
   "description": "MaisonFore: tee-time booking for golfers and partner courses. Part of the Maison family.",
-  "workspaces": ["packages/*", "server", "portal"],
-  "engines": { "node": ">=22" },
+  "workspaces": [
+    "packages/*",
+    "server",
+    "portal",
+    "app"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "npm run test -w @maison/engine && npm run test -w maisonfore-server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:server": "npm run dev -w maisonfore-server",
     "dev:portal": "npm run dev -w maisonfore-portal",
-    "build": "npm run build -w maisonfore-portal"
+    "build": "npm run build -w maisonfore-portal && npm run build -w maisonfore-app",
+    "dev:app": "npm run dev -w maisonfore-app",
+    "build:pages": "npm run build && node -e \"require('fs').cpSync('app/dist','portal/dist/play',{recursive:true})\""
   }
 }

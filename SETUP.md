@@ -59,6 +59,9 @@ Supabase → the **MaisonPOS** project → **Authentication → URL Configuratio
 2. **Add your course**, fill in **Settings**, then **Go live → Send to Maison for review**.
 3. Sign in with an email from `PLATFORM_ADMIN_EMAILS` and open `https://<your address>/admin` to approve it.
 4. Add your team under **Staff**. They sign in at `https://<your address>/<course address>`.
+5. **The golfer app** is at `https://<your address>/play`. Open it on your phone, sign in (any Maison
+   account works) and book a time; it shows up on the tee sheet straight away. Only approved courses are
+   listed. To put it on the home screen: Safari → Share → **Add to Home Screen**; Chrome → ⋮ → **Install app**.
 
 ## Good to know
 
@@ -104,11 +107,13 @@ MaisonFore uses the same four accounts as MaisonPOS: **Supabase**, **Render** (S
 ## 3. Cloudflare Pages: the portal
 
 1. **Workers & Pages → Create → Pages → Connect to Git** → the repository. Build command
-   `npm run build`, output folder `portal/dist`, branch `main`.
+   `npm run build:pages`, output folder `portal/dist`, branch `main`. This builds the portal and puts the
+   golfer app inside it at `/play`.
 2. **Variables**: `NODE_VERSION` = `22`, `VITE_SERVER_URL` = the Render address, `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_PUBLISHABLE_KEY` = the **MaisonPOS** project's.
-3. **Custom domains** → `maisonfore.com`. Add a rule that sends every address to `index.html`, so
-   `maisonfore.com/coursename` opens the portal (a `_redirects` file with `/* /index.html 200`).
+3. **Custom domains** → `maisonfore.com`. The `_redirects` file that comes with the portal sends
+   `maisonfore.com/play/...` to the golfer app and every other address to the portal, so
+   `maisonfore.com/coursename` opens the portal.
 
 ## First use
 
@@ -116,3 +121,4 @@ MaisonFore uses the same four accounts as MaisonPOS: **Supabase**, **Render** (S
 2. **Add your course**, then **Settings**: tee times, players and green fees (local, foreign, senior…, 9 and 18 holes), carts, caddies and fees, booking rules, holidays and the course page.
 3. **Go live → Send to Maison for review**. A Maison admin approves it at `maisonfore.com/admin`.
 4. Staff use **Tee sheet** for phone, Viber and walk-in bookings from day one, before approval.
+5. Once approved, golfers find the course at `maisonfore.com/play`.

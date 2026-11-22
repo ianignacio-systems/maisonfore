@@ -20,7 +20,7 @@ export const CAN = {
   staff: ['owner'] as const,
 };
 
-export const RESERVED = new Set([...COMMON_RESERVED, 'maisonfore', 'golf', 'golfer', 'golfers', 'courses', 'course', 'book', 'booking', 'bookings', 'teetime', 'teetimes', 'app']);
+export const RESERVED = new Set([...COMMON_RESERVED, 'maisonfore', 'golf', 'golfer', 'golfers', 'courses', 'course', 'book', 'booking', 'bookings', 'teetime', 'teetimes', 'app', 'play', 'golf']);
 
 export type CourseStatus = 'draft' | 'review' | 'live' | 'paused' | 'declined';
 

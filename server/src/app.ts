@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { AuthError, ensureAccount, Forbidden, NotFound, syncAdminEmails, UserError, type Caller, type Db, type VerifyToken } from '@maison/core';
 import { overview } from './overview';
+import { coursePage, courseTimes, findCourses, golferBook, golferCancel, golferMove, golferProfile, myBookings, saveProfile } from './golf';
 import { servePortal } from './portal';
 import { changeRole, claimInvites, inviteStaff, listStaff, removeStaff } from './staff';
 import { addBlock, changeStatus, createBooking, createSpecial, daySummary, editBooking, getBooking, moveBooking, recordPayment, removeBlock, staffSheet } from './bookings';
@@ -20,6 +21,8 @@ export interface AppOptions {
   now?: () => number;
   /** The built portal, served from the same address as the API (the Render test site). */
   portalDir?: string;
+  /** The built golfer app, served at /play. */
+  appDir?: string;
 }
 
 type P = { Params: { id: string; bid: string; slug: string }; Body: Record<string, unknown>; Querystring: Record<string, string> };
@@ -91,6 +94,17 @@ export function buildApp(o: AppOptions): FastifyInstance {
 
   app.get<P>('/api/v1/courses/:id/overview', async (req) => overview(db, await signedIn(req), req.params.id, now()));
 
+  // ---- the golfer app
+  app.get('/api/v1/golf/me', async (req) => golferProfile(db, await signedIn(req)));
+  app.put<P>('/api/v1/golf/me', async (req) => saveProfile(db, await signedIn(req), req.body ?? {}, now()));
+  app.get<P>('/api/v1/golf/courses', async (req) => { await signedIn(req); return findCourses(db, req.query, now()); });
+  app.get<P>('/api/v1/golf/courses/:slug', async (req) => { await signedIn(req); return coursePage(db, req.params.slug, now()); });
+  app.get<P>('/api/v1/golf/courses/:slug/times', async (req) => { await signedIn(req); return courseTimes(db, req.params.slug, req.query, now()); });
+  app.post<P>('/api/v1/golf/courses/:slug/bookings', async (req) => golferBook(db, await signedIn(req), req.params.slug, req.body ?? {}, now()));
+  app.get('/api/v1/golf/bookings', async (req) => myBookings(db, await signedIn(req), now()));
+  app.post<P>('/api/v1/golf/bookings/:bid/cancel', async (req) => golferCancel(db, await signedIn(req), req.params.bid, now()));
+  app.post<P>('/api/v1/golf/bookings/:bid/move', async (req) => golferMove(db, await signedIn(req), req.params.bid, req.body ?? {}, now()));
+
   // ---- staff (owners)
   app.get<P>('/api/v1/courses/:id/staff', async (req) => listStaff(db, await signedIn(req), req.params.id));
   app.post<P>('/api/v1/courses/:id/staff', async (req) => inviteStaff(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
@@ -118,7 +132,7 @@ export function buildApp(o: AppOptions): FastifyInstance {
   app.get('/api/v1/admin/courses', async (req) => adminCourses(db, await signedIn(req)));
   app.post<P>('/api/v1/admin/courses/:id/review', async (req) => reviewCourse(db, await signedIn(req), req.params.id, req.body ?? {}, now()));
 
-  if (o.portalDir) servePortal(app, o.portalDir);
+  if (o.portalDir) servePortal(app, o.portalDir, o.appDir);
   void CAN;
   return app;
 }

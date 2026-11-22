@@ -231,7 +231,7 @@ describe('Philippine pricing: player types, 9 holes, carts, caddies, gallery and
     expect(r.body).toMatchObject({ holes: 9, caddies: 1 });
     expect(r.body.quote[0]).toMatchObject({ label: 'Green fee, Local', amount: 155000 });
     const m = await t.call(OWNER, 'POST', `/courses/${id}/bookings/${r.body.id}/move`, { layoutId, startTee: '1', day: '2026-11-28', time: 400 });
-    expect(m.status).toBe(200);
+    expect(m.body.error ?? 'ok').toBe('ok');
     expect(m.body.holes).toBe(9);
     expect(m.body.quote[0].amount).toBe(0); // no weekend 9-hole rate set: staff see ₱0 and can fix the rate
   });
@@ -408,5 +408,58 @@ describe('time to pay and pencil bookings', () => {
     expect(sheet.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 380 && s.startTee === '1')).toMatchObject({ used: 2 });
     t.clock.now = start;
     await t.call(OWNER, 'PUT', `/courses/${id}/rules`, { ...c.body.setup.rules, paymentGraceHours: null });
+  });
+});
+
+describe('the golfer app', () => {
+  const GOLFER = 'golfer@gmail.com', WED = '2026-11-25';
+  it('asks for a profile, with the privacy notice, before booking', async () => {
+    expect((await t.call(GOLFER, 'GET', '/golf/me')).body).toEqual({ email: GOLFER, profile: null });
+    const r = await t.call(GOLFER, 'POST', '/golf/courses/valleygolfclub/bookings', { layoutId, startTee: '1', day: WED, time: 400, players: 1 });
+    expect(r.body.error).toMatch(/Finish your profile/);
+    expect((await t.call(GOLFER, 'PUT', '/golf/me', { name: 'Paolo Santos', mobile: '0917 555 1234', residency: 'local' })).body.error).toMatch(/privacy/);
+    const p = await t.call(GOLFER, 'PUT', '/golf/me', { name: 'Paolo Santos', mobile: '0917 555 1234', residency: 'local', acceptPrivacy: true });
+    expect(p.body.profile).toEqual({ name: 'Paolo Santos', mobile: '+639175551234', residency: 'local' });
+  });
+  it('finds live courses with their lowest price and open times', async () => {
+    const r = await t.call(GOLFER, 'GET', `/golf/courses?day=${WED}&q=antipolo`);
+    expect(r.body.map((c: { slug: string }) => c.slug)).toContain('valleygolfclub');
+    const v = r.body.find((c: { slug: string }) => c.slug === 'valleygolfclub');
+    expect(v.fromPrice).toBeGreaterThan(0);
+    expect(v.openSlots).toBeGreaterThan(0);
+    expect(v.nextTimes.length).toBeGreaterThan(0);
+    expect((await t.call(GOLFER, 'GET', '/golf/courses?q=nowhere')).body).toEqual([]);
+  });
+  it('shows a course page and only the open times, never who is booked', async () => {
+    const page = await t.call(GOLFER, 'GET', '/golf/courses/valleygolfclub');
+    expect(page.body.course.name).toBe('Valley Golf Club');
+    expect(page.body.setup.playerTypes.every((p: { public: boolean }) => p.public)).toBe(true);
+    const times = await t.call(GOLFER, 'GET', `/golf/courses/valleygolfclub/times?day=${WED}`);
+    expect(times.body.layouts[0].slots.length).toBeGreaterThan(0);
+    expect(JSON.stringify(times.body)).not.toMatch(/contactName|bookings/);
+    const far = await t.call(GOLFER, 'GET', '/golf/courses/valleygolfclub/times?day=2027-02-01');
+    expect(far.body.notYet).toMatch(/open on/);
+  });
+  it('books in the app at the app’s rules, paid at the course', async () => {
+    const r = await t.call(GOLFER, 'POST', '/golf/courses/valleygolfclub/bookings', { layoutId, startTee: '1', day: WED, time: 400, players: 2, playerTypes: [publicType, publicType], playerNames: ['', 'Mia Santos'] });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ channel: 'app', status: 'confirmed', payStatus: 'unpaid', contactName: 'Paolo Santos', players: 2 });
+    const mine = await t.call(GOLFER, 'GET', '/golf/bookings');
+    expect(mine.body[0]).toMatchObject({ ref: r.body.ref, upcoming: true, canChange: true, course: { slug: 'valleygolfclub' } });
+    expect(mine.body[0].roster.map((p: { name: string }) => p.name)).toEqual(['Paolo Santos', 'Mia Santos']);
+    const staff = await t.call(OWNER, 'GET', `/courses/${id}/sheet?day=${WED}`);
+    expect(staff.body.layouts[0].slots.find((s: { time: number; startTee: string }) => s.time === 400 && s.startTee === '1').bookings.some((b: { channel: string }) => b.channel === 'app')).toBe(true);
+  });
+  it('lets the golfer change the time and cancel before the cutoff, but not after', async () => {
+    const mine = await t.call(GOLFER, 'GET', '/golf/bookings');
+    const b = mine.body[0];
+    const m = await t.call(GOLFER, 'POST', `/golf/bookings/${b.id}/move`, { layoutId, startTee: '1', day: WED, time: 420 });
+    expect(m.body.error ?? 'ok').toBe('ok');
+    expect((await t.call(GOLFER, 'GET', '/golf/bookings')).body[0].time).toBe(420);
+    expect((await t.call(GOLFER, 'POST', `/golf/bookings/${b.id}/cancel`)).body).toEqual({ ok: true });
+    const soon = await t.call(GOLFER, 'POST', '/golf/courses/valleygolfclub/bookings', { layoutId, startTee: '1', day: MON, time: 450, players: 1 });
+    expect(soon.body.error ?? 'ok').toBe('ok');
+    expect((await t.call(GOLFER, 'POST', `/golf/bookings/${soon.body.id}/cancel`)).body.error).toMatch(/hours before the tee time/);
+    expect((await t.call(OTHER, 'POST', `/golf/bookings/${soon.body.id}/cancel`)).status).toBe(404);
   });
 });
